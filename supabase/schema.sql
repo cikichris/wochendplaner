@@ -1,7 +1,8 @@
 -- =====================================================================
 --  Wochenendplaner – Datenbank-Schema für Supabase
 --  Komplett in den SQL-Editor von Supabase einfügen und auf "Run" tippen.
---  Das Skript kann gefahrlos mehrfach ausgeführt werden.
+--  Das Skript kann gefahrlos mehrfach ausgeführt werden – vorhandene
+--  Einträge und Fotos bleiben dabei erhalten.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -82,25 +83,95 @@ create policy "auth_all_activities" on public.activities
   for all to authenticated using (true) with check (true);
 
 -- ---------------------------------------------------------------------
--- 4) Realtime aktivieren (Änderungen erscheinen live beim anderen)
+-- 4) Tabelle "photos": Fotos zu einzelnen Aktivitäten
+--    Die Bilddateien selbst liegen im Storage-Bucket "photos" (siehe 5).
+--    Wird eine Aktivität gelöscht, verschwinden auch ihre Foto-Einträge.
+-- ---------------------------------------------------------------------
+create table if not exists public.photos (
+  id            uuid primary key default gen_random_uuid(),
+  activity_id   uuid not null references public.activities (id) on delete cascade,
+  storage_path  text not null,                        -- große Version
+  thumb_path    text not null,                        -- kleine Vorschau
+  width         integer,
+  height        integer,
+  created_by    text not null default 'Unbekannt',
+  user_id       uuid default auth.uid(),
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists photos_activity_idx on public.photos (activity_id);
+
+grant select, insert, update, delete on table public.photos to anon;
+grant select, insert, update, delete on table public.photos to authenticated;
+
+alter table public.photos enable row level security;
+
+drop policy if exists "anon_select_photos" on public.photos;
+drop policy if exists "anon_insert_photos" on public.photos;
+drop policy if exists "anon_update_photos" on public.photos;
+drop policy if exists "anon_delete_photos" on public.photos;
+drop policy if exists "auth_all_photos" on public.photos;
+
+create policy "anon_select_photos" on public.photos
+  for select to anon using (true);
+create policy "anon_insert_photos" on public.photos
+  for insert to anon with check (true);
+create policy "anon_update_photos" on public.photos
+  for update to anon using (true) with check (true);
+create policy "anon_delete_photos" on public.photos
+  for delete to anon using (true);
+create policy "auth_all_photos" on public.photos
+  for all to authenticated using (true) with check (true);
+
+-- ---------------------------------------------------------------------
+-- 5) Storage-Bucket "photos" für die Bilddateien (max. 10 MB pro Bild)
+-- ---------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('photos', 'photos', true, 10485760, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do update
+  set public = excluded.public,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "photos_bucket_select" on storage.objects;
+drop policy if exists "photos_bucket_insert" on storage.objects;
+drop policy if exists "photos_bucket_update" on storage.objects;
+drop policy if exists "photos_bucket_delete" on storage.objects;
+
+create policy "photos_bucket_select" on storage.objects
+  for select to anon, authenticated using (bucket_id = 'photos');
+create policy "photos_bucket_insert" on storage.objects
+  for insert to anon, authenticated with check (bucket_id = 'photos');
+create policy "photos_bucket_update" on storage.objects
+  for update to anon, authenticated using (bucket_id = 'photos') with check (bucket_id = 'photos');
+create policy "photos_bucket_delete" on storage.objects
+  for delete to anon, authenticated using (bucket_id = 'photos');
+
+-- ---------------------------------------------------------------------
+-- 6) Realtime aktivieren (Änderungen erscheinen live beim anderen)
 -- ---------------------------------------------------------------------
 alter table public.activities replica identity full;
+alter table public.photos replica identity full;
 
 do $$
+declare
+  t text;
 begin
-  if not exists (
-    select 1 from pg_publication_tables
-    where pubname = 'supabase_realtime'
-      and schemaname = 'public'
-      and tablename = 'activities'
-  ) then
-    alter publication supabase_realtime add table public.activities;
-  end if;
+  foreach t in array array['activities', 'photos'] loop
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = t
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
 end;
 $$;
 
 -- ---------------------------------------------------------------------
--- 5) API-Schema-Cache neu laden, damit die Tabelle sofort erreichbar ist
+-- 7) API-Schema-Cache neu laden, damit die Tabellen sofort erreichbar sind
 -- ---------------------------------------------------------------------
 notify pgrst, 'reload schema';
 
@@ -113,6 +184,9 @@ notify pgrst, 'reload schema';
 --    drop policy if exists "anon_update_activities" on public.activities;
 --    drop policy if exists "anon_delete_activities" on public.activities;
 --    revoke select, insert, update, delete on table public.activities from anon;
+--    (dasselbe für die Tabelle public.photos mit den *_photos-Policies)
+--    und bei den Storage-Policies "photos_bucket_*" die Rolle anon entfernen
+--    sowie den Bucket auf privat stellen (public = false, Signed URLs nutzen).
 --
 --  Danach dürfen nur noch eingeloggte Nutzer lesen und schreiben.
 -- =====================================================================
