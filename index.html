@@ -5,23 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Wochenendplaner</title>
   <meta name="description" content="Unsere Wochenenden gemeinsam planen.">
-  <meta name="theme-color" content="#fbf7f2" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#16141a" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#16141a">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Wochenende">
   <link rel="stylesheet" href="styles.css">
   <script>
     // Farbschema vor dem ersten Zeichnen setzen (verhindert Aufblitzen)
     try {
-      var t = localStorage.getItem('wochenendplaner.theme');
+      // Standard ist dunkel; "auto" folgt der Handy-Einstellung
+      var t = localStorage.getItem('wochenendplaner.theme') || 'dark';
       if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
-    } catch (e) {}
+    } catch (e) { document.documentElement.dataset.theme = 'dark'; }
   </script>
   <script type="module" src="app.js"></script>
 </head>

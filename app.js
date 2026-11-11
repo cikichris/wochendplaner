@@ -1264,11 +1264,13 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
 // Hell / Dunkel
 // ---------------------------------------------------------------------
 const THEME_KEY = 'wochenendplaner.theme';
-const THEMES = ['auto', 'light', 'dark'];
+// Standard ist dunkel. Reihenfolge beim Tippen: dunkel -> hell -> automatisch
+const DEFAULT_THEME = 'dark';
+const THEMES = ['dark', 'light', 'auto'];
 const THEME_LABEL = { auto: 'automatisch', light: 'hell', dark: 'dunkel' };
 
 function getTheme() {
-  try { return THEMES.includes(localStorage.getItem(THEME_KEY)) ? localStorage.getItem(THEME_KEY) : 'auto'; } catch { return 'auto'; }
+  try { return THEMES.includes(localStorage.getItem(THEME_KEY)) ? localStorage.getItem(THEME_KEY) : DEFAULT_THEME; } catch { return DEFAULT_THEME; }
 }
 
 function applyTheme(theme) {
