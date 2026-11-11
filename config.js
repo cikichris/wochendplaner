@@ -21,6 +21,24 @@ export const PERSON_COLORS = {
   Chris: { light: '#1f3a8a', dark: '#8fb0f5' },   // Dunkelblau
   Odilia: { light: '#2e7d4f', dark: '#6fcb94' },  // Dunkelgrün
 };
+// Feste Liste der Kategorien (key wird in der Datenbank gespeichert –
+// den key nicht mehr ändern, Emoji und Bezeichnung dürfen angepasst werden)
+export const CATEGORIES = [
+  { key: 'pferde', emoji: '🐴', label: 'Pferde' },
+  { key: 'essen', emoji: '🍝', label: 'Essen' },
+  { key: 'ausflug', emoji: '🌊', label: 'Ausflug' },
+  { key: 'party', emoji: '🎶', label: 'Party/Festival' },
+  { key: 'kultur', emoji: '🎬', label: 'Kultur/Kino' },
+  { key: 'wellness', emoji: '🧖', label: 'Wellness' },
+  { key: 'sport', emoji: '⚽', label: 'Sport' },
+  { key: 'familie', emoji: '👨‍👩‍👧', label: 'Familie/Freunde' },
+  { key: 'zuhause', emoji: '🏠', label: 'Zuhause' },
+  { key: 'arbeit', emoji: '💼', label: 'Arbeit' },
+  { key: 'termin', emoji: '🩺', label: 'Termin/Arzt' },
+  { key: 'urlaub', emoji: '✈️', label: 'Urlaub' },
+  { key: 'geburtstag', emoji: '🎂', label: 'Geburtstag' },
+];
+
 // Farbe für alle anderen Namen
 export const FALLBACK_PERSON_COLOR = { light: '#6b4fa0', dark: '#b9a2e8' };
 

@@ -1,7 +1,9 @@
 // =====================================================================
 //  Wochenendplaner – Hauptlogik
 // =====================================================================
-import { END_DATE, SUGGESTED_NAMES, PERSON_COLORS, FALLBACK_PERSON_COLOR } from './config.js';
+import {
+  END_DATE, SUGGESTED_NAMES, PERSON_COLORS, FALLBACK_PERSON_COLOR, CATEGORIES,
+} from './config.js';
 import { initAuth, getCurrentUser, signIn, onAuthChange } from './auth.js';
 import {
   fetchActivities, createActivity, updateActivity, deleteActivity,
@@ -30,6 +32,7 @@ const state = {
   todayISO: '',
   view: 'weekends',
   memMode: 'weekends',
+  ideaFilter: null, // Kategorie-Filter in der Ideensammlung
   loaded: false,
 };
 
@@ -88,6 +91,7 @@ const els = {
   pcText: $('#pcText'),
   pcPhoto: $('#pcPhoto'),
   pcSkip: $('#pcSkip'),
+  categoryPicker: $('#categoryPicker'),
 };
 
 // ---------------------------------------------------------------------
@@ -172,6 +176,16 @@ function galleryPhotos() {
       if (da !== db) return da < db ? 1 : -1;
       return byCreated(a, b);
     });
+}
+
+// ---------- Kategorien ----------
+const CATEGORY_BY_KEY = new Map(CATEGORIES.map((c) => [c.key, c]));
+const categoryOf = (a) => (a?.category ? CATEGORY_BY_KEY.get(a.category) : null);
+
+/** Titel mit vorangestelltem Kategorie-Emoji (HTML). */
+function titleHTML(a) {
+  const c = categoryOf(a);
+  return c ? `<span class="cat-emoji" role="img" aria-label="${esc(c.label)}">${c.emoji}</span> ${esc(a.title)}` : esc(a.title);
 }
 
 // ---------- Personen & Farben ----------
@@ -344,7 +358,7 @@ function itemHTML(a, { idea = false, memory = false } = {}) {
       ${check}
       <button class="item-body" type="button" data-action="edit" data-id="${a.id}" aria-label="${esc(a.title)} bearbeiten">
         ${chips.length ? `<div class="item-chips">${chips.join('')}</div>` : ''}
-        <div class="item-title">${esc(a.title)}</div>
+        <div class="item-title">${titleHTML(a)}</div>
         ${meta.length ? `<div class="item-meta">${meta.join('')}</div>` : ''}
         ${conflictLine}
         ${a.note ? `<div class="item-note">${esc(a.note)}</div>` : ''}
@@ -387,7 +401,7 @@ function renderChallenge() {
       <ul class="challenge-list">
         ${shown.map((a) => `
           <li>
-            <div class="challenge-text"><b>${esc(a.title)}</b><small>${esc(dayLabel(a.day))}</small></div>
+            <div class="challenge-text"><b>${titleHTML(a)}</b><small>${esc(dayLabel(a.day))}</small></div>
             ${(state.uploading.get(a.id) || 0) ? '<span class="thumb uploading small" aria-label="Wird hochgeladen"></span>' : `
             <button class="challenge-photo" type="button" data-action="add-photo" data-id="${a.id}" aria-label="Foto zu ${esc(a.title)} hinzufügen">${ICONS.camera}Foto</button>
             <button class="challenge-skip" type="button" data-action="skip-photo" data-id="${a.id}" aria-label="${esc(a.title)} ohne Foto abschließen">Ohne</button>`}
@@ -409,6 +423,16 @@ function renderMemStats() {
     `<span class="stat">📷 ${plural(total, 'Foto', 'Fotos')}</span>`,
   ];
   if (pending) chips.push(`<span class="stat warn">⏳ ${pending} ohne Foto</span>`);
+  // Häufigste Kategorie bisher erlebter Termine
+  const counts = new Map();
+  for (const a of state.activities.values()) {
+    if (a.day && a.day <= state.todayISO && categoryOf(a)) counts.set(a.category, (counts.get(a.category) || 0) + 1);
+  }
+  const top = [...counts].sort((x, y) => y[1] - x[1])[0];
+  if (top) {
+    const c = CATEGORY_BY_KEY.get(top[0]);
+    chips.push(`<span class="stat">Am häufigsten: ${c.emoji} ${esc(c.label)} (${top[1]}×)</span>`);
+  }
   els.memStats.innerHTML = chips.join('');
 }
 
@@ -465,12 +489,25 @@ function dayHTML(d) {
 }
 
 function renderIdeas() {
-  const list = ideas();
-  els.ideaCount.textContent = list.length;
-  els.ideaCount.hidden = list.length === 0;
+  const all = ideas();
+  els.ideaCount.textContent = all.length;
+  els.ideaCount.hidden = all.length === 0;
+  // Filter nur mit Kategorien anbieten, die bei Ideen vorkommen
+  const counts = new Map();
+  for (const a of all) if (categoryOf(a)) counts.set(a.category, (counts.get(a.category) || 0) + 1);
+  if (state.ideaFilter && !counts.has(state.ideaFilter)) state.ideaFilter = null;
+  const list = state.ideaFilter ? all.filter((a) => a.category === state.ideaFilter) : all;
+  const filter = counts.size
+    ? `<div class="filter-row" role="group" aria-label="Nach Kategorie filtern">
+        <button type="button" class="filter-chip" data-action="idea-filter" data-cat="" aria-pressed="${!state.ideaFilter}">Alle <small>${all.length}</small></button>
+        ${CATEGORIES.filter((c) => counts.has(c.key)).map((c) => `
+          <button type="button" class="filter-chip" data-action="idea-filter" data-cat="${c.key}" aria-pressed="${state.ideaFilter === c.key}">${c.emoji} ${esc(c.label)} <small>${counts.get(c.key)}</small></button>`).join('')}
+      </div>`
+    : '';
   els.ideaList.innerHTML = `
     <div class="ideas">
       <button class="big-add" type="button" data-action="add-idea">${ICONS.plus}Idee hinzufügen</button>
+      ${filter}
       ${list.length
         ? `<ul class="items">${list.map((a) => itemHTML(a, { idea: true })).join('')}</ul>`
         : `<p class="empty">${state.loaded ? 'Noch keine Ideen. Wie wär’s mit „Therme besuchen“ oder „Weihnachtsmarkt“?' : 'Lade Ideen …'}</p>`}
@@ -706,6 +743,8 @@ function openEditor({ id = null, day = null }) {
   f.start_time.value = a?.start_time ? shortTime(a.start_time) : '';
   f.end_time.value = a?.end_time ? shortTime(a.end_time) : '';
   f.is_fixed.checked = Boolean(a?.is_fixed);
+  editing.category = a?.category || null;
+  renderCategoryPicker();
   els.ownerWrap.hidden = isIdea;
   els.fixedWrap.hidden = isIdea;
   renderOwnerToggle();
@@ -742,17 +781,33 @@ function readEditor() {
   // Neue Felder nur mitschicken, wenn sie gebraucht werden bzw. schon existieren –
   // so funktioniert die App auch, bevor das Update-SQL ausgeführt wurde.
   const existing = editing?.id ? state.activities.get(editing.id) : null;
-  const hasColumns = existing ? 'owner' in existing : false;
   const extra = {
     owner: editing?.day && editing.personal ? editing.ownerName : null,
     is_fixed: Boolean(editing?.day && f.is_fixed.checked),
     end_time: f.end_time.value || null,
+    category: editing?.category || null,
   };
   for (const [k, v] of Object.entries(extra)) {
-    if (v || hasColumns) fields[k] = v;
+    if (v || (existing && k in existing)) fields[k] = v;
   }
   return fields;
 }
+
+function renderCategoryPicker() {
+  els.categoryPicker.innerHTML = CATEGORIES.map((c) => `
+    <button type="button" class="cat-option" role="radio" data-cat="${c.key}"
+      aria-checked="${editing?.category === c.key}"><span class="cat-emoji" aria-hidden="true">${c.emoji}</span>${esc(c.label)}</button>`).join('');
+}
+
+els.categoryPicker.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cat]');
+  if (!b || !editing) return;
+  // Nochmal tippen = Kategorie entfernen
+  editing.category = editing.category === b.dataset.cat ? null : b.dataset.cat;
+  els.categoryPicker.querySelectorAll('[data-cat]').forEach((x) => {
+    x.setAttribute('aria-checked', String(x.dataset.cat === editing.category));
+  });
+});
 
 function renderOwnerToggle() {
   const label = editing.ownerName === me() ? 'Nur ich' : `Nur ${editing.ownerName}`;
@@ -1038,7 +1093,7 @@ function showLightboxPhoto() {
   els.lbImg.src = photoUrl(p.storage_path);
   els.lbImg.alt = a ? `Foto: ${a.title}` : 'Foto';
   els.lbCounter.textContent = lb.ids.length > 1 ? `${lb.index + 1} / ${lb.ids.length}` : '';
-  els.lbCaption.innerHTML = `<b>${esc(a?.title || '')}</b>${a?.day ? esc(dayLabel(a.day)) + ' · ' : ''}Foto von ${esc(p.created_by || 'Unbekannt')}`;
+  els.lbCaption.innerHTML = `<b>${a ? titleHTML(a) : ''}</b>${a?.day ? esc(dayLabel(a.day)) + ' · ' : ''}Foto von ${esc(p.created_by || 'Unbekannt')}`;
   els.lbPrev.hidden = lb.index === 0;
   els.lbNext.hidden = lb.index >= lb.ids.length - 1;
   resetLbDelete();
@@ -1247,6 +1302,7 @@ function handleAction(e) {
   else if (action === 'photo') openLightbox(el.dataset.ctx, el.dataset.photo);
   else if (action === 'download-all') downloadAll();
   else if (action === 'skip-photo') skipPhoto(id);
+  else if (action === 'idea-filter') { state.ideaFilter = el.dataset.cat || null; renderIdeas(); }
   else if (action === 'go-memories') { state.memMode = 'weekends'; setView('memories'); renderMemories(); }
 }
 
