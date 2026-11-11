@@ -6,6 +6,7 @@ Eine kleine Web-App, mit der wir unsere Wochenenden gemeinsam planen.
 - **Aktivitäten pro Tag:** hinzufügen, bearbeiten, löschen und abhaken. Felder: Titel, Uhrzeit (optional), Ort (optional), Notiz (optional). „Eingetragen von“ wird automatisch ausgefüllt.
 - **Ideensammlung & Vorschläge:** Aktivitäten ohne Datum (z. B. „Therme besuchen“). Mit **Einplanen** ordnest du eine Idee einem Freitag, Samstag oder Sonntag zu. Sie verschwindet dann aus der Sammlung. Umgekehrt geht es auch: Eine geplante Aktivität öffnen und **In die Ideensammlung** antippen.
 - **Persönliche Termine („Nur ich“):** Fixe Termine einer Person, die der andere kennen sollte (z. B. „Hufpflege kommt“). Sie erscheinen in der Farbe der Person: **Chris dunkelblau**, **Odilia dunkelgrün**. 📌 **Fixtermine** sind markiert, Termine haben eine Uhrzeit **von–bis**, und bei **Überschneidungen** mit gemeinsamen Plänen erscheint ein Hinweis.
+- **Kategorien:** 🐴 Pferde, 🍝 Essen, 🌊 Ausflug, 🎶 Party/Festival, 🎬 Kultur/Kino, 🧖 Wellness, ⚽ Sport, 👨‍👩‍👧 Familie/Freunde, 🏠 Zuhause, 💼 Arbeit, 🩺 Termin/Arzt, ✈️ Urlaub, 🎂 Geburtstag. Das Emoji steht vor dem Titel, in der Ideensammlung gibt es einen Filter nach Kategorie, und unter Erinnerungen steht die häufigste Kategorie.
 - **Foto-Challenge:** Am Tag eines gemeinsamen Termins erinnert die App ans Fotografieren. Beim Abhaken ohne Foto fragt sie nach einem Foto, alternativ lässt sich der Termin „ohne Foto abschließen“. Vergangene Termine ohne Foto stehen oben unter „Foto-Challenge“. Unter Erinnerungen zählt eine 🔥-Serie, wie viele Wochenenden in Folge ihr Fotos gemacht habt.
 - **Fotos zu Terminen:** Zu jeder Aktivität lassen sich Fotos hinzufügen, auch nachträglich.
 - **Erinnerungen:** Ein eigener Reiter mit den vergangenen Wochenenden (Fotos und Aktivitäten nachtragen) und einer Galerie aller Fotos. Einzelne Fotos lassen sich speichern, alle zusammen als ZIP herunterladen.
@@ -13,6 +14,10 @@ Eine kleine Web-App, mit der wir unsere Wochenenden gemeinsam planen.
 - Für das Handy gebaut, standardmäßig im Dunkel-Modus (hell umschaltbar), und lässt sich auf dem iPhone zum Home-Bildschirm hinzufügen.
 
 ---
+
+## Update „Kategorien“: Datenbank erweitern
+
+Für die Kategorien braucht die Datenbank ein neues Feld `category`. Führe dafür **die aktuelle `supabase/schema.sql` noch einmal komplett aus**, genau wie im Abschnitt „Update ‚Fotos & Donnerstag‘“ beschrieben. Eure Einträge und Fotos bleiben erhalten. Bis dahin funktioniert alles wie bisher, nur beim Speichern mit Kategorie erscheint der Hinweis „Neue Funktionen noch nicht eingerichtet“.
 
 ## Update „Persönliche Termine & Foto-Challenge“: Datenbank erweitern
 
@@ -120,6 +125,8 @@ Der Code liegt im Moment auf einem eigenen Zweig (Branch) namens `claude/github-
 | --- | --- |
 | Aktivität hinzufügen | Beim Tag auf **„+ Neu“** tippen |
 | Persönlichen Termin eintragen | **„+ Neu“** → oben **„Nur ich“** wählen (gilt immer für die Person, die einträgt) |
+| Kategorie wählen | Im Dialog auf eine Kategorie tippen (nochmal tippen = keine Kategorie) |
+| Ideen nach Kategorie filtern | Unten auf **Ideen** → oben die Kategorie antippen |
 | Fixtermin markieren | Im Dialog den Schalter **📌 Fixtermin** einschalten |
 | Foto-Challenge erledigen | Oben bei **Foto-Challenge** auf **Foto** (hochladen) oder **Ohne** (ohne Foto abschließen) |
 | Aktivität bearbeiten | Auf die Aktivität tippen |
@@ -158,7 +165,7 @@ Es gibt **noch keinen Login**. Jeder, der den Link kennt, kann die Einträge les
   | --- | --- |
   | `index.html` | Seitengerüst und Dialoge |
   | `styles.css` | Aussehen inkl. Hell-/Dunkel-Modus |
-  | `config.js` | Supabase-URL, Publishable Key, Enddatum (`END_DATE`), Namensvorschläge, **Personenfarben** (`PERSON_COLORS`) |
+  | `config.js` | Supabase-URL, Publishable Key, Enddatum (`END_DATE`), Namensvorschläge, **Personenfarben** (`PERSON_COLORS`), **Kategorien** (`CATEGORIES`) |
   | `app.js` | Oberfläche und Abläufe |
   | `api.js` | Alle Datenbank- und Speicherzugriffe + Realtime |
   | `images.js` | Verkleinert Fotos vor dem Hochladen |

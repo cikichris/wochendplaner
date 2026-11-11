@@ -35,6 +35,7 @@ alter table public.activities add column if not exists owner text;          -- N
 alter table public.activities add column if not exists is_fixed boolean not null default false;   -- 📌 Fixtermin
 alter table public.activities add column if not exists end_time time;       -- optionales Ende
 alter table public.activities add column if not exists photo_skipped boolean not null default false; -- "ohne Foto abgeschlossen"
+alter table public.activities add column if not exists category text;       -- Kategorie, z. B. 'pferde' (Liste in config.js)
 
 -- "updated_at" automatisch aktualisieren
 create or replace function public.set_updated_at()
