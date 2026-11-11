@@ -10,7 +10,7 @@ Eine kleine Web-App, mit der wir unsere Wochenenden gemeinsam planen.
 - **Fotos zu Terminen:** Zu jeder Aktivität lassen sich Fotos hinzufügen, auch nachträglich.
 - **Erinnerungen:** Ein eigener Reiter mit den vergangenen Wochenenden (Fotos und Aktivitäten nachtragen) und einer Galerie aller Fotos. Einzelne Fotos lassen sich speichern, alle zusammen als ZIP herunterladen.
 - **Live:** Änderungen erscheinen sofort beim anderen (grüner Punkt oben = Live-Verbindung steht).
-- Für das Handy gebaut, mit Hell- und Dunkel-Modus, und lässt sich auf dem iPhone zum Home-Bildschirm hinzufügen.
+- Für das Handy gebaut, standardmäßig im Dunkel-Modus (hell umschaltbar), und lässt sich auf dem iPhone zum Home-Bildschirm hinzufügen.
 
 ---
 
@@ -135,7 +135,7 @@ Der Code liegt im Moment auf einem eigenen Zweig (Branch) namens `claude/github-
 | Fotos ansehen | Auf ein Foto tippen, dann wischen oder die Pfeile nutzen |
 | Foto aufs Handy speichern | Foto öffnen → **Speichern** → im Teilen-Menü **„Bild sichern“** |
 | Alle Fotos herunterladen | **Erinnerungen** → **Alle Fotos** → **Alle herunterladen** (ZIP-Datei) |
-| Hell/Dunkel | Oben rechts auf das Kreis-Symbol tippen (automatisch → hell → dunkel) |
+| Hell/Dunkel | Die App startet **dunkel**. Oben rechts auf das Symbol tippen: dunkel → hell → automatisch (wie das Handy). Die Wahl gilt pro Gerät. |
 | Namen ändern | Oben auf deinen Namen tippen |
 
 ## Hilfe bei Problemen
