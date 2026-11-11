@@ -1,7 +1,7 @@
 // =====================================================================
 //  Wochenendplaner – Hauptlogik
 // =====================================================================
-import { END_DATE, SUGGESTED_NAMES } from './config.js';
+import { END_DATE, SUGGESTED_NAMES, PERSON_COLORS, FALLBACK_PERSON_COLOR } from './config.js';
 import { initAuth, getCurrentUser, signIn, onAuthChange } from './auth.js';
 import {
   fetchActivities, createActivity, updateActivity, deleteActivity,
@@ -76,6 +76,18 @@ const els = {
   lbSave: $('#lbSave'),
   lbDelete: $('#lbDelete'),
   photoInput: $('#photoInput'),
+  ownerWrap: $('#ownerWrap'),
+  ownerMeLabel: $('#ownerMeLabel'),
+  ownerButtons: [...document.querySelectorAll('[data-owner]')],
+  editOverlap: $('#editOverlap'),
+  fixedWrap: $('#fixedWrap'),
+  challenge: $('#challenge'),
+  challengeCount: $('#challengeCount'),
+  memStats: $('#memStats'),
+  photoCheck: $('#photoCheck'),
+  pcText: $('#pcText'),
+  pcPhoto: $('#pcPhoto'),
+  pcSkip: $('#pcSkip'),
 };
 
 // ---------------------------------------------------------------------
@@ -94,6 +106,7 @@ const ICONS = {
   download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
   sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17.5v.01"/></svg>',
   auto: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>',
 };
 
@@ -108,13 +121,16 @@ function toast(msg, isError = false, ms) {
 
 function showError(err, fallback = 'Das hat leider nicht geklappt.') {
   console.error(err);
-  if (isSetupError(err)) showSetupBanner();
+  if (err?.code === 'PGRST204' || /column .* (does not exist|of '.*' in the schema cache)/i.test(err?.message || '')) showSetupBanner('update');
+  else if (isSetupError(err)) showSetupBanner();
   else if (!navigator.onLine) toast('Keine Internetverbindung.', true);
   else toast(fallback, true);
 }
 
 function showSetupBanner(kind = 'db') {
-  els.banner.innerHTML = kind === 'photos'
+  els.banner.innerHTML = kind === 'update'
+    ? '<b>Neue Funktionen noch nicht eingerichtet</b>Bitte die aktuelle Datei <code>supabase/schema.sql</code> noch einmal im SQL-Editor von Supabase ausführen (siehe README) und die Seite neu laden. Eure Einträge bleiben dabei erhalten.'
+    : kind === 'photos'
     ? '<b>Fotos sind noch nicht eingerichtet</b>Bitte die aktuelle Datei <code>supabase/schema.sql</code> noch einmal im SQL-Editor von Supabase ausführen (siehe README) und die Seite neu laden. Eure Einträge bleiben dabei erhalten.'
     : '<b>Datenbank noch nicht eingerichtet</b>Bitte die Datei <code>supabase/schema.sql</code> im SQL-Editor von Supabase ausführen (siehe Anleitung in der README) und die Seite neu laden.';
   els.banner.hidden = false;
@@ -156,6 +172,88 @@ function galleryPhotos() {
       if (da !== db) return da < db ? 1 : -1;
       return byCreated(a, b);
     });
+}
+
+// ---------- Personen & Farben ----------
+const me = () => getCurrentUser()?.name || 'Unbekannt';
+
+function personColor(name) {
+  return PERSON_COLORS[name] || FALLBACK_PERSON_COLOR;
+}
+
+/** Inline-Style mit den Farben einer Person (hell/dunkel), für CSS-Variablen. */
+function personStyle(name) {
+  const c = personColor(name);
+  return `--pc-l:${c.light};--pc-d:${c.dark}`;
+}
+
+// ---------- Uhrzeiten & Überschneidungen ----------
+const toMin = (t) => { const [h, m] = String(t).split(':').map(Number); return h * 60 + m; };
+
+function timeLabel(a) {
+  if (a.start_time && a.end_time) return `${shortTime(a.start_time)}–${shortTime(a.end_time)} Uhr`;
+  if (a.start_time) return `${shortTime(a.start_time)} Uhr`;
+  if (a.end_time) return `bis ${shortTime(a.end_time)} Uhr`;
+  return '';
+}
+
+/** Zeitraum in Minuten; ohne Ende wird 1 Stunde angenommen. */
+function span(a) {
+  if (!a.start_time) return null;
+  const s = toMin(a.start_time);
+  let e = a.end_time ? toMin(a.end_time) : s + 60;
+  if (e <= s) e = s + 60;
+  return [s, e];
+}
+
+/** Stören sich zwei Termine? Persönliche Termine verschiedener Personen nicht. */
+function clashes(a, b) {
+  if (a.owner && b.owner && a.owner !== b.owner) return false;
+  const x = span(a);
+  const y = span(b);
+  return Boolean(x && y && x[0] < y[1] && y[0] < x[1]);
+}
+
+function conflictsFor(a) {
+  if (!a.day) return [];
+  return activitiesForDay(a.day).filter((b) => b.id !== a.id && clashes(a, b));
+}
+
+// ---------- Foto-Challenge ----------
+/** Gemeinsamer Termin, der noch auf ein Foto wartet. */
+function needsPhoto(a) {
+  return Boolean(state.photosReady && !a.owner && a.day && !a.photo_skipped && photosFor(a.id).length === 0);
+}
+
+/** Vergangene gemeinsame Termine ohne Foto (neueste zuerst). */
+function pendingPhotos() {
+  return [...state.activities.values()]
+    .filter((a) => needsPhoto(a) && a.day < state.todayISO)
+    .sort((x, y) => (x.day < y.day ? 1 : x.day > y.day ? -1 : 0));
+}
+
+/** Serie: Wochenenden in Folge (mit gemeinsamen Terminen), an denen es Fotos gibt. */
+function photoStreak() {
+  const currentKey = state.weekends[0]?.key ?? state.todayISO;
+  const byWeekend = new Map();
+  for (const a of state.activities.values()) {
+    if (!a.day) continue;
+    const key = toISODate(thursdayOnOrBefore(parseISODate(a.day)));
+    const e = byWeekend.get(key) || { shared: false, photos: 0 };
+    e.shared ||= !a.owner;
+    e.photos += photosFor(a.id).length;
+    byWeekend.set(key, e);
+  }
+  let streak = 0;
+  for (const key of [...byWeekend.keys()].sort().reverse()) {
+    if (key > currentKey) continue; // Zukunft zählt nicht
+    const e = byWeekend.get(key);
+    if (key === currentKey) { if (e.photos) streak++; continue; } // laufendes Wochenende: nur Bonus
+    if (!e.shared && !e.photos) continue;
+    if (e.photos) streak++;
+    else break;
+  }
+  return streak;
 }
 
 function dayLabel(iso) {
@@ -201,14 +299,33 @@ function itemPhotosHTML(a, { memory }) {
   const add = memory && state.photosReady
     ? `<button class="thumb add" type="button" data-action="add-photo" data-id="${a.id}" aria-label="Foto zu ${esc(a.title)} hinzufügen">${ICONS.camera}</button>`
     : '';
-  return `<div class="item-photos">${shown}${more}${uploadingHTML(a.id)}${add}</div>`;
+  const skip = memory && needsPhoto(a) && a.day < state.todayISO && !uploading
+    ? `<button class="skip-link" type="button" data-action="skip-photo" data-id="${a.id}">Ohne Foto abschließen</button>`
+    : '';
+  return `<div class="item-photos">${shown}${more}${uploadingHTML(a.id)}${add}${skip}</div>`;
 }
 
 function itemHTML(a, { idea = false, memory = false } = {}) {
+  const personal = Boolean(a.owner) && !idea;
   const meta = [];
-  if (a.start_time) meta.push(`<span>${ICONS.clock}${esc(shortTime(a.start_time))} Uhr</span>`);
+  const time = timeLabel(a);
+  if (time) meta.push(`<span>${ICONS.clock}${esc(time)}</span>`);
   if (a.location) meta.push(`<span>${ICONS.pin}${esc(a.location)}</span>`);
-  const check = idea ? '' : `
+
+  const chips = [];
+  if (personal) chips.push(`<span class="chip-person"><i class="person-dot"></i>${esc(a.owner)}</span>`);
+  if (a.is_fixed) chips.push('<span class="chip-tag fixed">📌 Fix</span>');
+  if (!idea && needsPhoto(a)) {
+    if (a.day === state.todayISO && !a.done) chips.push('<span class="chip-tag photo">📸 Foto nicht vergessen!</span>');
+    else if (a.day < state.todayISO) chips.push('<span class="chip-tag photo">📸 Foto fehlt</span>');
+  }
+  const conflicts = idea ? [] : conflictsFor(a);
+  const conflictLine = conflicts.length
+    ? `<div class="item-conflict">${ICONS.warn}Zeitgleich mit ${conflicts.map((b) => `„${esc(b.title)}“${b.owner ? ` (${esc(b.owner)})` : ''}`).join(', ')}</div>`
+    : '';
+
+  // Persönliche Termine sind Info für den anderen – ohne Abhaken
+  const check = idea || personal ? '' : `
     <button class="check" type="button" data-action="toggle" data-id="${a.id}"
       role="checkbox" aria-checked="${a.done ? 'true' : 'false'}"
       aria-label="${esc(a.title)} ${a.done ? 'als offen markieren' : 'abhaken'}">
@@ -217,12 +334,19 @@ function itemHTML(a, { idea = false, memory = false } = {}) {
   const plan = idea
     ? `<button class="plan-btn" type="button" data-action="plan" data-id="${a.id}">Einplanen</button>`
     : '';
+  const classes = ['item'];
+  if (a.done && !idea && !personal) classes.push('done');
+  if (check) classes.push('has-check');
+  if (personal) classes.push('personal');
+  if (a.is_fixed) classes.push('fixed');
   return `
-    <li class="item${a.done && !idea ? ' done' : ''}${idea ? '' : ' has-check'}">
+    <li class="${classes.join(' ')}"${personal ? ` style="${personStyle(a.owner)}"` : ''}>
       ${check}
       <button class="item-body" type="button" data-action="edit" data-id="${a.id}" aria-label="${esc(a.title)} bearbeiten">
+        ${chips.length ? `<div class="item-chips">${chips.join('')}</div>` : ''}
         <div class="item-title">${esc(a.title)}</div>
         ${meta.length ? `<div class="item-meta">${meta.join('')}</div>` : ''}
+        ${conflictLine}
         ${a.note ? `<div class="item-note">${esc(a.note)}</div>` : ''}
         <div class="item-by">eingetragen von ${esc(a.created_by || 'Unbekannt')}</div>
       </button>
@@ -240,7 +364,52 @@ function renderCountdown() {
       : `Noch ${n} Tage bis zum Wochenende`;
   const planned = w.days.reduce((sum, d) => sum + activitiesForDay(d.iso).length, 0);
   if (planned) text += ` · ${plural(planned, 'Plan', 'Pläne')}`;
+  const sharedToday = activitiesForDay(state.todayISO).some((a) => !a.owner);
+  if (n <= 0 && sharedToday && state.photosReady) text += ' · Fotos nicht vergessen 📸';
   els.countdown.textContent = text;
+}
+
+function renderChallenge() {
+  const pending = pendingPhotos();
+  els.challengeCount.textContent = pending.length;
+  els.challengeCount.hidden = pending.length === 0;
+  if (!pending.length) { els.challenge.innerHTML = ''; return; }
+  const shown = pending.slice(0, 3);
+  els.challenge.innerHTML = `
+    <section class="challenge" aria-label="Foto-Challenge">
+      <div class="challenge-head">
+        <span class="challenge-emoji" aria-hidden="true">📸</span>
+        <div>
+          <h3>Foto-Challenge</h3>
+          <p>${pending.length === 1 ? 'Ein Erlebnis wartet' : `${pending.length} Erlebnisse warten`} noch auf ein Foto</p>
+        </div>
+      </div>
+      <ul class="challenge-list">
+        ${shown.map((a) => `
+          <li>
+            <div class="challenge-text"><b>${esc(a.title)}</b><small>${esc(dayLabel(a.day))}</small></div>
+            ${(state.uploading.get(a.id) || 0) ? '<span class="thumb uploading small" aria-label="Wird hochgeladen"></span>' : `
+            <button class="challenge-photo" type="button" data-action="add-photo" data-id="${a.id}" aria-label="Foto zu ${esc(a.title)} hinzufügen">${ICONS.camera}Foto</button>
+            <button class="challenge-skip" type="button" data-action="skip-photo" data-id="${a.id}" aria-label="${esc(a.title)} ohne Foto abschließen">Ohne</button>`}
+          </li>`).join('')}
+      </ul>
+      ${pending.length > shown.length ? `<button class="challenge-more" type="button" data-action="go-memories">Alle ${pending.length} anzeigen</button>` : ''}
+    </section>`;
+}
+
+function renderMemStats() {
+  if (!state.photosReady) { els.memStats.innerHTML = ''; return; }
+  const streak = photoStreak();
+  const total = galleryPhotos().length;
+  const pending = pendingPhotos().length;
+  const chips = [
+    streak
+      ? `<span class="stat hot">🔥 ${streak === 1 ? '1 Wochenende' : `${streak} Wochenenden`} in Folge mit Fotos</span>`
+      : '<span class="stat">🔥 Startet eure Foto-Serie!</span>',
+    `<span class="stat">📷 ${plural(total, 'Foto', 'Fotos')}</span>`,
+  ];
+  if (pending) chips.push(`<span class="stat warn">⏳ ${pending} ohne Foto</span>`);
+  els.memStats.innerHTML = chips.join('');
 }
 
 function renderWeekends() {
@@ -385,10 +554,12 @@ function render() {
   requestAnimationFrame(() => {
     renderQueued = false;
     renderCountdown();
+    renderChallenge();
     renderWeekends();
     renderIdeas();
     renderMemories();
-    if (els.editDialog.open) renderEditorPhotos();
+    renderMemStats();
+    if (els.editDialog.open) { renderEditorPhotos(); updateOverlapHint(); }
     if (els.lightbox.open) refreshLightbox();
   });
 }
@@ -456,11 +627,13 @@ function startRealtime() {
 // ---------------------------------------------------------------------
 function renderUser(user) {
   els.userName.textContent = user?.name || '…';
+  els.userBtn.setAttribute('style', user ? personStyle(user.name) : '');
+  els.userBtn.classList.toggle('has-person', Boolean(user));
 }
 
 function openNameDialog({ cancellable }) {
   els.nameSuggestions.innerHTML = SUGGESTED_NAMES
-    .map((n) => `<button class="btn" type="button" data-name="${esc(n)}">Ich bin ${esc(n)}</button>`)
+    .map((n) => `<button class="btn person-btn" type="button" data-name="${esc(n)}" style="${personStyle(n)}"><i class="person-dot"></i>Ich bin ${esc(n)}</button>`)
     .join('');
   const current = getCurrentUser()?.name || '';
   els.nameInput.value = SUGGESTED_NAMES.includes(current) ? '' : current;
@@ -498,7 +671,7 @@ onAuthChange(renderUser);
 // ---------------------------------------------------------------------
 // Bearbeiten-Dialog
 // ---------------------------------------------------------------------
-let editing = null; // { id?: string, day: string|null }
+let editing = null; // { id?, day, personal, ownerName }
 let deleteArmed = false;
 let deleteTimer;
 
@@ -526,11 +699,16 @@ function renderEditorPhotos() {
 function openEditor({ id = null, day = null }) {
   const a = id ? state.activities.get(id) : null;
   if (id && !a) { toast('Dieser Eintrag existiert nicht mehr.', true); return; }
-  editing = { id, day: a ? a.day : day };
+  editing = { id, day: a ? a.day : day, personal: Boolean(a?.owner), ownerName: a?.owner || me() };
   const isIdea = !editing.day;
   const f = els.editForm.elements;
   f.title.value = a?.title || '';
   f.start_time.value = a?.start_time ? shortTime(a.start_time) : '';
+  f.end_time.value = a?.end_time ? shortTime(a.end_time) : '';
+  f.is_fixed.checked = Boolean(a?.is_fixed);
+  els.ownerWrap.hidden = isIdea;
+  els.fixedWrap.hidden = isIdea;
+  renderOwnerToggle();
   f.location.value = a?.location || '';
   f.note.value = a?.note || '';
   f.title.closest('.field').classList.remove('invalid');
@@ -547,6 +725,7 @@ function openEditor({ id = null, day = null }) {
   els.editToIdeas.hidden = isIdea;
   resetDeleteButton();
   renderEditorPhotos();
+  updateOverlapHint();
   els.editDialog.showModal();
   if (!a) setTimeout(() => f.title.focus(), 50);
 }
@@ -554,13 +733,64 @@ function openEditor({ id = null, day = null }) {
 function readEditor() {
   const f = els.editForm.elements;
   const clean = (v) => { const t = v.trim(); return t ? t : null; };
-  return {
+  const fields = {
     title: f.title.value.trim(),
     start_time: f.start_time.value || null,
     location: clean(f.location.value),
     note: clean(f.note.value),
   };
+  // Neue Felder nur mitschicken, wenn sie gebraucht werden bzw. schon existieren –
+  // so funktioniert die App auch, bevor das Update-SQL ausgeführt wurde.
+  const existing = editing?.id ? state.activities.get(editing.id) : null;
+  const hasColumns = existing ? 'owner' in existing : false;
+  const extra = {
+    owner: editing?.day && editing.personal ? editing.ownerName : null,
+    is_fixed: Boolean(editing?.day && f.is_fixed.checked),
+    end_time: f.end_time.value || null,
+  };
+  for (const [k, v] of Object.entries(extra)) {
+    if (v || hasColumns) fields[k] = v;
+  }
+  return fields;
 }
+
+function renderOwnerToggle() {
+  const label = editing.ownerName === me() ? 'Nur ich' : `Nur ${editing.ownerName}`;
+  els.ownerMeLabel.textContent = label;
+  els.ownerWrap.setAttribute('style', personStyle(editing.ownerName));
+  els.ownerButtons.forEach((b) => {
+    const on = (b.dataset.owner === 'me') === editing.personal;
+    b.setAttribute('aria-checked', String(on));
+  });
+}
+
+els.ownerButtons.forEach((b) => b.addEventListener('click', () => {
+  if (!editing) return;
+  editing.personal = b.dataset.owner === 'me';
+  if (editing.personal && !state.activities.get(editing.id)?.owner) editing.ownerName = me();
+  renderOwnerToggle();
+  updateOverlapHint();
+}));
+
+/** Live-Hinweis im Dialog, wenn sich der Termin mit einem anderen überschneidet. */
+function updateOverlapHint() {
+  if (!editing?.day) { els.editOverlap.hidden = true; return; }
+  const f = els.editForm.elements;
+  const draft = {
+    id: editing.id,
+    day: editing.day,
+    owner: editing.personal ? editing.ownerName : null,
+    start_time: f.start_time.value || null,
+    end_time: f.end_time.value || null,
+  };
+  const list = conflictsFor(draft);
+  els.editOverlap.hidden = list.length === 0;
+  els.editOverlap.innerHTML = list.length
+    ? `${ICONS.warn}<span>Überschneidet sich mit ${list.map((b) => `„${esc(b.title)}“ (${esc(timeLabel(b))}${b.owner ? `, ${esc(b.owner)}` : ''})`).join(', ')}</span>`
+    : '';
+}
+els.editForm.elements.start_time.addEventListener('input', updateOverlapHint);
+els.editForm.elements.end_time.addEventListener('input', updateOverlapHint);
 
 /** Nimmt ungespeicherte Änderungen beim Verschieben mit, sofern ein Titel da ist. */
 function readEditorIfValid() {
@@ -581,6 +811,11 @@ els.editForm.addEventListener('submit', async (e) => {
     field.closest('.field').classList.add('invalid');
     field.focus();
     toast('Bitte einen Titel eingeben.', true);
+    return;
+  }
+  if (fields.start_time && fields.end_time && fields.end_time <= fields.start_time) {
+    toast('Das Ende muss nach dem Beginn liegen.', true);
+    els.editForm.elements.end_time.focus();
     return;
   }
   const submit = els.editForm.querySelector('[type="submit"]');
@@ -608,7 +843,8 @@ els.editForm.addEventListener('submit', async (e) => {
 els.editToIdeas.addEventListener('click', async () => {
   if (!editing?.id) return;
   try {
-    applyRow(await updateActivity(editing.id, { ...readEditorIfValid(), day: null, done: false }));
+    const reset = 'owner' in (state.activities.get(editing.id) || {}) ? { owner: null, is_fixed: false } : {};
+    applyRow(await updateActivity(editing.id, { ...readEditorIfValid(), ...reset, day: null, done: false }));
     els.editDialog.close();
     toast('In die Ideensammlung verschoben');
   } catch (err) {
@@ -703,6 +939,7 @@ els.planList.addEventListener('click', async (e) => {
 // Fotos hochladen
 // ---------------------------------------------------------------------
 let photoTarget = null;
+const completeAfterUpload = new Set(); // Termine, die nach dem Foto-Upload abgehakt werden
 
 function pickPhotos(activityId) {
   if (!state.photosReady) { showSetupBanner('photos'); toast('Fotos sind noch nicht eingerichtet.', true); return; }
@@ -742,6 +979,12 @@ async function addPhotos(activityId, files) {
     }
   }
   if (lastError && isSetupError(lastError)) { state.photosReady = false; showSetupBanner('photos'); }
+  // Foto-Challenge: vergangene (oder gerade abgehakte) gemeinsame Termine gelten damit als erledigt
+  const a = state.activities.get(activityId);
+  if (ok && a && !a.done && !a.owner && (completeAfterUpload.has(activityId) || (a.day && a.day <= state.todayISO))) {
+    try { applyRow(await updateActivity(activityId, { done: true })); } catch (err) { console.error(err); }
+  }
+  completeAfterUpload.delete(activityId);
   if (!lastError) toast(ok === 1 ? 'Foto gespeichert' : `${ok} Fotos gespeichert`);
   else if (ok) toast(`${ok} von ${files.length} Fotos gespeichert – der Rest hat nicht geklappt.`, true);
   else toast('Foto konnte nicht hochgeladen werden.', true);
@@ -945,10 +1188,19 @@ document.querySelectorAll('dialog').forEach((dlg) => {
 // ---------------------------------------------------------------------
 // Klicks in den Listen
 // ---------------------------------------------------------------------
+let photoCheckId = null;
+
 async function toggleDone(id) {
   const a = state.activities.get(id);
   if (!a) return;
   const done = !a.done;
+  // Foto-Challenge: gemeinsamer Termin ohne Foto -> erst fragen
+  if (done && needsPhoto(a)) {
+    photoCheckId = id;
+    els.pcText.textContent = `Für „${a.title}“ gibt es noch kein Foto. Haltet den Moment für eure Erinnerungen fest – oder schließt ihn ohne Foto ab.`;
+    els.photoCheck.showModal();
+    return;
+  }
   state.activities.set(id, { ...a, done }); // sofort anzeigen
   render();
   try {
@@ -957,6 +1209,28 @@ async function toggleDone(id) {
     state.activities.set(id, a);
     render();
     showError(err);
+  }
+}
+
+els.pcPhoto.addEventListener('click', () => {
+  const id = photoCheckId;
+  els.photoCheck.close();
+  if (!id) return;
+  completeAfterUpload.add(id);
+  pickPhotos(id);
+});
+els.pcSkip.addEventListener('click', () => {
+  const id = photoCheckId;
+  els.photoCheck.close();
+  if (id) skipPhoto(id);
+});
+
+async function skipPhoto(id) {
+  try {
+    applyRow(await updateActivity(id, { photo_skipped: true, done: true }));
+    toast('Abgeschlossen – ohne Foto');
+  } catch (err) {
+    showError(err, 'Das hat leider nicht geklappt.');
   }
 }
 
@@ -972,6 +1246,8 @@ function handleAction(e) {
   else if (action === 'add-photo') pickPhotos(id);
   else if (action === 'photo') openLightbox(el.dataset.ctx, el.dataset.photo);
   else if (action === 'download-all') downloadAll();
+  else if (action === 'skip-photo') skipPhoto(id);
+  else if (action === 'go-memories') { state.memMode = 'weekends'; setView('memories'); renderMemories(); }
 }
 
 els.main.addEventListener('click', handleAction);

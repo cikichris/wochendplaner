@@ -29,6 +29,13 @@ create table if not exists public.activities (
 
 create index if not exists activities_day_idx on public.activities (day);
 
+-- Erweiterungen (Update "Persönliche Termine & Foto-Challenge").
+-- Fügt die Spalten nur hinzu, wenn sie noch fehlen – Einträge bleiben erhalten.
+alter table public.activities add column if not exists owner text;          -- NULL = gemeinsam, sonst Name der Person ("Nur ich")
+alter table public.activities add column if not exists is_fixed boolean not null default false;   -- 📌 Fixtermin
+alter table public.activities add column if not exists end_time time;       -- optionales Ende
+alter table public.activities add column if not exists photo_skipped boolean not null default false; -- "ohne Foto abgeschlossen"
+
 -- "updated_at" automatisch aktualisieren
 create or replace function public.set_updated_at()
 returns trigger

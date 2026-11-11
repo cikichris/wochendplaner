@@ -56,6 +56,7 @@
           <p id="countdown" class="hero-countdown"></p>
         </div>
       </div>
+      <div id="challenge"></div>
       <div id="weekendList"><p class="loading">Lade Wochenenden …</p></div>
     </section>
 
@@ -78,6 +79,7 @@
           <p>Unsere vergangenen Wochenenden und Fotos.</p>
         </div>
       </div>
+      <div id="memStats" class="mem-stats"></div>
       <div class="segmented" role="tablist" aria-label="Ansicht">
         <button type="button" role="tab" data-mem="weekends" aria-selected="true">Wochenenden</button>
         <button type="button" role="tab" data-mem="photos" aria-selected="false">Alle Fotos <b id="photoCount" class="count soft" hidden></b></button>
@@ -97,7 +99,7 @@
     </button>
     <button class="tab" type="button" data-view="memories">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="15" rx="3"/><circle cx="12" cy="12.5" r="3.5"/><path d="M8.5 5l1.5-2h4l1.5 2"/></svg>
-      <span>Erinnerungen</span>
+      <span>Erinnerungen <b id="challengeCount" class="count" hidden></b></span>
     </button>
   </nav>
 
@@ -124,20 +126,37 @@
     <form id="editForm" method="dialog" novalidate>
       <h2 id="editTitle">Aktivität</h2>
       <p id="editContext" class="context"></p>
+      <div id="ownerWrap" class="owner-wrap">
+        <span class="field-label">Für wen?</span>
+        <div class="segmented owner-toggle" role="radiogroup" aria-label="Für wen ist der Termin?">
+          <button type="button" role="radio" data-owner="shared" aria-checked="true">Gemeinsam</button>
+          <button type="button" role="radio" data-owner="me" aria-checked="false"><i class="person-dot"></i><span id="ownerMeLabel">Nur ich</span></button>
+        </div>
+      </div>
       <label class="field">
         <span>Titel</span>
         <input name="title" type="text" required maxlength="120" placeholder="z. B. Brunch im Café" autocomplete="off">
       </label>
-      <div class="field-row">
+      <div class="field-row two">
         <label class="field">
-          <span>Uhrzeit <small>(optional)</small></span>
+          <span>Von <small>(optional)</small></span>
           <input name="start_time" type="time">
         </label>
-        <label class="field grow">
-          <span>Ort <small>(optional)</small></span>
-          <input name="location" type="text" maxlength="120" placeholder="z. B. Altstadt" autocomplete="off">
+        <label class="field">
+          <span>Bis <small>(optional)</small></span>
+          <input name="end_time" type="time">
         </label>
       </div>
+      <p id="editOverlap" class="overlap" role="status" hidden></p>
+      <label class="field">
+        <span>Ort <small>(optional)</small></span>
+        <input name="location" type="text" maxlength="120" placeholder="z. B. Altstadt" autocomplete="off">
+      </label>
+      <label id="fixedWrap" class="switch-field">
+        <input name="is_fixed" type="checkbox">
+        <span class="switch" aria-hidden="true"></span>
+        <span class="switch-text">📌 Fixtermin<small>steht fest und lässt sich nicht verschieben</small></span>
+      </label>
       <label class="field">
         <span>Notiz <small>(optional)</small></span>
         <textarea name="note" rows="3" maxlength="1000" placeholder="Was sollten wir wissen?"></textarea>
@@ -169,6 +188,18 @@
     </div>
     <p class="muted">Tippe auf den Tag, an dem ihr das machen wollt.</p>
     <div id="planList" class="plan-list"></div>
+  </dialog>
+
+  <!-- Abhaken: Foto-Challenge -->
+  <dialog id="photoCheck" class="sheet" aria-labelledby="pcTitle">
+    <div class="pc-emoji" aria-hidden="true">📸</div>
+    <h2 id="pcTitle">Geschafft! Habt ihr ein Foto?</h2>
+    <p id="pcText" class="muted"></p>
+    <div class="pc-actions">
+      <button id="pcPhoto" class="btn primary" type="button">Foto hinzufügen</button>
+      <button id="pcSkip" class="btn soft" type="button">Ohne Foto abschließen</button>
+      <button class="btn ghost" type="button" data-close>Abbrechen</button>
+    </div>
   </dialog>
 
   <!-- Foto-Ansicht -->
