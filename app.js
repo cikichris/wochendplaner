@@ -5,29 +5,43 @@ import { END_DATE, SUGGESTED_NAMES } from './config.js';
 import { initAuth, getCurrentUser, signIn, onAuthChange } from './auth.js';
 import {
   fetchActivities, createActivity, updateActivity, deleteActivity,
-  subscribeActivities, isSetupError,
+  fetchPhotos, uploadPhoto, deletePhoto, photoUrl,
+  subscribeChanges, isSetupError,
 } from './api.js';
+import { prepareImage } from './images.js';
 import {
-  getWeekends, parseISODate, toISODate, startOfDay, weekdayLong, weekdayShort,
-  dayMonth, monthYear, weekendRange, shortTime, formatTimestamp,
+  getWeekends, getPastWeekends, thursdayOnOrBefore, makeWeekend, parseISODate, toISODate,
+  startOfDay, daysBetween, weekdayLong, weekdayShort, dayMonth, monthYear, weekendRange,
+  shortTime, formatTimestamp,
 } from './dates.js';
+
+// Wie viele vergangene Wochenenden immer unter "Erinnerungen" stehen
+const RECENT_PAST_WEEKENDS = 4;
 
 // ---------------------------------------------------------------------
 // Zustand
 // ---------------------------------------------------------------------
 const state = {
   activities: new Map(), // id -> Zeile
+  photos: new Map(), // id -> Zeile
+  photosReady: true, // false, wenn Tabelle/Bucket noch fehlen
+  uploading: new Map(), // activityId -> Anzahl laufender Uploads
   weekends: [],
   todayISO: '',
   view: 'weekends',
+  memMode: 'weekends',
   loaded: false,
 };
 
 const $ = (sel) => document.querySelector(sel);
 const els = {
-  weekends: $('#view-weekends'),
-  ideas: $('#view-ideas'),
+  main: $('#main'),
+  weekendList: $('#weekendList'),
+  ideaList: $('#ideaList'),
+  memoryList: $('#memoryList'),
+  countdown: $('#countdown'),
   ideaCount: $('#ideaCount'),
+  photoCount: $('#photoCount'),
   live: $('#live'),
   banner: $('#banner'),
   userName: $('#userName'),
@@ -44,6 +58,8 @@ const els = {
   editTitle: $('#editTitle'),
   editContext: $('#editContext'),
   editMeta: $('#editMeta'),
+  editPhotosWrap: $('#editPhotosWrap'),
+  editPhotos: $('#editPhotos'),
   editExtra: $('#editExtra'),
   editMove: $('#editMove'),
   editToIdeas: $('#editToIdeas'),
@@ -51,6 +67,15 @@ const els = {
   planDialog: $('#planDialog'),
   planTitle: $('#planTitle'),
   planList: $('#planList'),
+  lightbox: $('#lightbox'),
+  lbImg: $('#lbImg'),
+  lbCounter: $('#lbCounter'),
+  lbCaption: $('#lbCaption'),
+  lbPrev: $('#lbPrev'),
+  lbNext: $('#lbNext'),
+  lbSave: $('#lbSave'),
+  lbDelete: $('#lbDelete'),
+  photoInput: $('#photoInput'),
 };
 
 // ---------------------------------------------------------------------
@@ -65,18 +90,20 @@ const ICONS = {
   check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   clock: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="3.5"/><path d="M8.5 6l1.5-2h4l1.5 2"/></svg>',
+  download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
   sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>',
   auto: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>',
 };
 
 let toastTimer;
-function toast(msg, isError = false) {
+function toast(msg, isError = false, ms) {
   els.toast.textContent = msg;
   els.toast.classList.toggle('error', isError);
   els.toast.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => els.toast.classList.remove('show'), isError ? 4500 : 2200);
+  toastTimer = setTimeout(() => els.toast.classList.remove('show'), ms ?? (isError ? 4500 : 2200));
 }
 
 function showError(err, fallback = 'Das hat leider nicht geklappt.') {
@@ -86,12 +113,14 @@ function showError(err, fallback = 'Das hat leider nicht geklappt.') {
   else toast(fallback, true);
 }
 
-function showSetupBanner() {
-  els.banner.innerHTML =
-    '<b>Datenbank noch nicht eingerichtet</b>' +
-    'Bitte die Datei <code>supabase/schema.sql</code> im SQL-Editor von Supabase ausführen (siehe Anleitung in der README) und die Seite neu laden.';
+function showSetupBanner(kind = 'db') {
+  els.banner.innerHTML = kind === 'photos'
+    ? '<b>Fotos sind noch nicht eingerichtet</b>Bitte die aktuelle Datei <code>supabase/schema.sql</code> noch einmal im SQL-Editor von Supabase ausführen (siehe README) und die Seite neu laden. Eure Einträge bleiben dabei erhalten.'
+    : '<b>Datenbank noch nicht eingerichtet</b>Bitte die Datei <code>supabase/schema.sql</code> im SQL-Editor von Supabase ausführen (siehe Anleitung in der README) und die Seite neu laden.';
   els.banner.hidden = false;
 }
+
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 /** Sortierung innerhalb eines Tages: ohne Uhrzeit zuerst, dann nach Uhrzeit. */
 function byTimeThenCreated(a, b) {
@@ -101,6 +130,8 @@ function byTimeThenCreated(a, b) {
   return String(a.created_at).localeCompare(String(b.created_at));
 }
 
+const byCreated = (a, b) => String(a.created_at).localeCompare(String(b.created_at));
+
 function activitiesForDay(iso) {
   return [...state.activities.values()].filter((a) => a.day === iso).sort(byTimeThenCreated);
 }
@@ -108,7 +139,23 @@ function activitiesForDay(iso) {
 function ideas() {
   return [...state.activities.values()]
     .filter((a) => !a.day)
-    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+    .sort((a, b) => byCreated(b, a));
+}
+
+function photosFor(activityId) {
+  return [...state.photos.values()].filter((p) => p.activity_id === activityId).sort(byCreated);
+}
+
+/** Alle Fotos für die Galerie: neueste Tage zuerst, innerhalb eines Tages chronologisch. */
+function galleryPhotos() {
+  return [...state.photos.values()]
+    .filter((p) => state.activities.has(p.activity_id))
+    .sort((a, b) => {
+      const da = state.activities.get(a.activity_id).day || '';
+      const db = state.activities.get(b.activity_id).day || '';
+      if (da !== db) return da < db ? 1 : -1;
+      return byCreated(a, b);
+    });
 }
 
 function dayLabel(iso) {
@@ -116,10 +163,48 @@ function dayLabel(iso) {
   return `${weekdayLong(d)}, ${dayMonth(d)}`;
 }
 
+function slug(s) {
+  return String(s).toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'foto';
+}
+
+function photoFileName(p) {
+  const a = state.activities.get(p.activity_id);
+  const index = photosFor(p.activity_id).findIndex((x) => x.id === p.id) + 1;
+  return `${a?.day || 'idee'}-${slug(a?.title || 'foto')}-${index || 1}.jpg`;
+}
+
 // ---------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------
-function itemHTML(a, { idea = false } = {}) {
+function thumbHTML(p, ctx) {
+  return `<button class="thumb" type="button" data-action="photo" data-photo="${p.id}" data-ctx="${ctx}" aria-label="Foto ansehen">
+    <img src="${esc(photoUrl(p.thumb_path))}" alt="" loading="lazy" decoding="async"></button>`;
+}
+
+function uploadingHTML(activityId) {
+  const n = state.uploading.get(activityId) || 0;
+  return Array.from({ length: n }, () => '<span class="thumb uploading" aria-label="Foto wird hochgeladen"></span>').join('');
+}
+
+/** Fotoreihe unter einer Aktivität. Im Erinnerungs-Modus mit "+"-Kachel. */
+function itemPhotosHTML(a, { memory }) {
+  const photos = photosFor(a.id);
+  const uploading = state.uploading.get(a.id) || 0;
+  if (!memory && !photos.length && !uploading) return '';
+  const max = memory ? photos.length : 4;
+  const shown = photos.slice(0, max).map((p) => thumbHTML(p, `activity:${a.id}`)).join('');
+  const more = photos.length > max
+    ? `<button class="thumb more" type="button" data-action="photo" data-photo="${photos[max].id}" data-ctx="activity:${a.id}" aria-label="Weitere Fotos">+${photos.length - max}</button>`
+    : '';
+  const add = memory && state.photosReady
+    ? `<button class="thumb add" type="button" data-action="add-photo" data-id="${a.id}" aria-label="Foto zu ${esc(a.title)} hinzufügen">${ICONS.camera}</button>`
+    : '';
+  return `<div class="item-photos">${shown}${more}${uploadingHTML(a.id)}${add}</div>`;
+}
+
+function itemHTML(a, { idea = false, memory = false } = {}) {
   const meta = [];
   if (a.start_time) meta.push(`<span>${ICONS.clock}${esc(shortTime(a.start_time))} Uhr</span>`);
   if (a.location) meta.push(`<span>${ICONS.pin}${esc(a.location)}</span>`);
@@ -142,12 +227,25 @@ function itemHTML(a, { idea = false } = {}) {
         <div class="item-by">eingetragen von ${esc(a.created_by || 'Unbekannt')}</div>
       </button>
       ${plan}
+      ${idea ? '' : itemPhotosHTML(a, { memory })}
     </li>`;
+}
+
+function renderCountdown() {
+  const w = state.weekends[0];
+  if (!w) { els.countdown.textContent = ''; return; }
+  const n = daysBetween(new Date(), w.first);
+  let text = n <= 0 ? 'Es ist Wochenende! 🎉'
+    : n === 1 ? 'Morgen geht’s los'
+      : `Noch ${n} Tage bis zum Wochenende`;
+  const planned = w.days.reduce((sum, d) => sum + activitiesForDay(d.iso).length, 0);
+  if (planned) text += ` · ${plural(planned, 'Plan', 'Pläne')}`;
+  els.countdown.textContent = text;
 }
 
 function renderWeekends() {
   if (!state.weekends.length) {
-    els.weekends.innerHTML = `<p class="empty">Bis zum ${esc(dayMonth(parseISODate(END_DATE)))}${parseISODate(END_DATE).getFullYear()} gibt es keine Wochenenden mehr.<br>Das Enddatum lässt sich in <code>config.js</code> ändern.</p>`;
+    els.weekendList.innerHTML = `<p class="empty">Bis zum ${esc(dayMonth(parseISODate(END_DATE)))}${parseISODate(END_DATE).getFullYear()} gibt es keine Wochenenden mehr.<br>Das Enddatum lässt sich in <code>config.js</code> ändern.</p>`;
     return;
   }
   const months = new Map();
@@ -162,7 +260,6 @@ function renderWeekends() {
     for (const w of list) {
       const isCurrent = first;
       first = false;
-      const [fri, , sun] = w.days;
       const total = w.days.reduce((n, d) => n + activitiesForDay(d.iso).length, 0);
       const badge = isCurrent
         ? '<span class="badge">Dieses Wochenende</span>'
@@ -170,7 +267,7 @@ function renderWeekends() {
       html += `
         <article class="weekend${isCurrent ? ' current' : ''}" id="we-${w.key}">
           <header class="weekend-head">
-            <h3>${esc(weekendRange(fri.date, sun.date))}</h3>
+            <h3>${esc(weekendRange(w.first, w.last))}</h3>
             ${badge}
           </header>
           ${w.days.map((d) => dayHTML(d)).join('')}
@@ -178,7 +275,7 @@ function renderWeekends() {
     }
     html += '</section>';
   }
-  els.weekends.innerHTML = html;
+  els.weekendList.innerHTML = html;
 }
 
 function dayHTML(d) {
@@ -202,19 +299,83 @@ function renderIdeas() {
   const list = ideas();
   els.ideaCount.textContent = list.length;
   els.ideaCount.hidden = list.length === 0;
-  els.ideas.innerHTML = `
+  els.ideaList.innerHTML = `
     <div class="ideas">
-      <div class="ideas-head">
-        <div>
-          <h2>Ideensammlung &amp; Vorschläge</h2>
-          <p>Alles, was wir irgendwann mal machen wollen.</p>
-        </div>
-      </div>
       <button class="big-add" type="button" data-action="add-idea">${ICONS.plus}Idee hinzufügen</button>
       ${list.length
         ? `<ul class="items">${list.map((a) => itemHTML(a, { idea: true })).join('')}</ul>`
         : `<p class="empty">${state.loaded ? 'Noch keine Ideen. Wie wär’s mit „Therme besuchen“ oder „Weihnachtsmarkt“?' : 'Lade Ideen …'}</p>`}
     </div>`;
+}
+
+function renderMemories() {
+  const photos = galleryPhotos();
+  els.photoCount.textContent = photos.length;
+  els.photoCount.hidden = photos.length === 0;
+  document.querySelectorAll('[data-mem]').forEach((b) => {
+    b.setAttribute('aria-selected', String(b.dataset.mem === state.memMode));
+  });
+  els.memoryList.innerHTML = state.memMode === 'photos' ? galleryHTML(photos) : pastWeekendsHTML();
+}
+
+function pastWeekendsHTML() {
+  const days = [...state.activities.values()].map((a) => a.day).filter(Boolean);
+  const past = getPastWeekends(new Date(), RECENT_PAST_WEEKENDS, days);
+  if (!past.length) return '<p class="empty">Noch keine vergangenen Wochenenden.</p>';
+  const hint = state.photosReady ? '' : '<p class="nothing">Fotos sind noch nicht eingerichtet (siehe README).</p>';
+  return hint + past.map((w, i) => {
+    const groups = w.days.map((d) => ({ d, items: activitiesForDay(d.iso) })).filter((g) => g.items.length);
+    const photoTotal = groups.reduce((n, g) => n + g.items.reduce((m, a) => m + photosFor(a.id).length, 0), 0);
+    const badge = i === 0 && daysBetween(w.last, new Date()) <= 7
+      ? '<span class="badge soft">Letztes Wochenende</span>'
+      : (photoTotal ? `<span class="badge soft">${plural(photoTotal, 'Foto', 'Fotos')}</span>` : '');
+    return `
+      <article class="weekend past">
+        <header class="weekend-head">
+          <h3>${esc(weekendRange(w.first, w.last))}</h3>
+          ${badge}
+        </header>
+        <div class="past-body">
+          ${groups.length
+            ? groups.map((g) => `
+                <p class="day-label">${esc(dayLabel(g.d.iso))}</p>
+                <ul class="items">${g.items.map((a) => itemHTML(a, { memory: true })).join('')}</ul>`).join('')
+            : '<p class="past-empty">Nichts eingetragen.</p>'}
+        </div>
+        <div class="catchup">
+          <span>Nachtragen:</span>
+          ${w.days.map((d) => `<button type="button" data-action="add" data-day="${d.iso}" aria-label="Aktivität am ${esc(dayLabel(d.iso))} nachtragen">${esc(weekdayShort(d.date))}</button>`).join('')}
+        </div>
+      </article>`;
+  }).join('');
+}
+
+function galleryHTML(photos) {
+  if (!state.photosReady) {
+    return '<p class="empty">Fotos sind noch nicht eingerichtet.<br>Bitte <code>supabase/schema.sql</code> noch einmal in Supabase ausführen (siehe README).</p>';
+  }
+  if (!photos.length) {
+    return '<p class="empty">Noch keine Fotos.<br>Öffne eine Aktivität oder ein vergangenes Wochenende und tippe auf das Kamera-Symbol.</p>';
+  }
+  const groups = new Map();
+  for (const p of photos) {
+    const day = state.activities.get(p.activity_id).day;
+    const key = day ? toISODate(thursdayOnOrBefore(parseISODate(day))) : 'ohne-datum';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  }
+  let html = `<div class="gallery-actions">
+    <button class="add-photo-btn" type="button" data-action="download-all">${ICONS.download}Alle herunterladen (${photos.length})</button>
+  </div>`;
+  for (const [key, list] of groups) {
+    const title = key === 'ohne-datum' ? 'Ohne Datum' : (() => {
+      const w = makeWeekend(parseISODate(key));
+      return `${weekendRange(w.first, w.last)} ${w.last.getFullYear()}`;
+    })();
+    html += `<section class="gallery-group"><h3>${esc(title)}</h3>
+      <div class="gallery">${list.map((p) => thumbHTML(p, 'all')).join('')}</div></section>`;
+  }
+  return html;
 }
 
 let renderQueued = false;
@@ -223,15 +384,18 @@ function render() {
   renderQueued = true;
   requestAnimationFrame(() => {
     renderQueued = false;
+    renderCountdown();
     renderWeekends();
     renderIdeas();
+    renderMemories();
+    if (els.editDialog.open) renderEditorPhotos();
+    if (els.lightbox.open) refreshLightbox();
   });
 }
 
 function setView(view) {
   state.view = view;
-  els.weekends.hidden = view !== 'weekends';
-  els.ideas.hidden = view !== 'ideas';
+  els.main.querySelectorAll('.view').forEach((v) => { v.hidden = v.id !== `view-${view}`; });
   document.querySelectorAll('.tab').forEach((t) => {
     if (t.dataset.view === view) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
@@ -250,29 +414,30 @@ function computeWeekends() {
 
 async function loadAll() {
   computeWeekends();
-  const from = state.weekends[0]?.key ?? state.todayISO;
-  try {
-    const rows = await fetchActivities(from);
-    state.activities = new Map(rows.map((r) => [r.id, r]));
-    state.loaded = true;
+  const [acts, photos] = await Promise.allSettled([fetchActivities(), fetchPhotos()]);
+  if (acts.status === 'fulfilled') {
+    state.activities = new Map(acts.value.map((r) => [r.id, r]));
     els.banner.hidden = true;
-  } catch (err) {
-    showError(err, 'Daten konnten nicht geladen werden.');
-    state.loaded = true;
+  } else {
+    showError(acts.reason, 'Daten konnten nicht geladen werden.');
   }
-  render();
-}
-
-function applyRow(row) {
-  if (row) state.activities.set(row.id, row);
+  if (photos.status === 'fulfilled') {
+    state.photos = new Map(photos.value.map((r) => [r.id, r]));
+    state.photosReady = true;
+  } else {
+    console.warn('Fotos nicht verfügbar', photos.reason);
+    state.photosReady = !isSetupError(photos.reason);
+  }
+  state.loaded = true;
   render();
 }
 
 function startRealtime() {
-  subscribeActivities(
-    ({ type, row, oldId }) => {
-      if (type === 'DELETE') state.activities.delete(oldId);
-      else if (row) state.activities.set(row.id, row);
+  subscribeChanges(
+    ({ table, type, row, oldId }) => {
+      const map = table === 'photos' ? state.photos : state.activities;
+      if (type === 'DELETE') map.delete(oldId);
+      else if (row) map.set(row.id, row);
       render();
     },
     (status) => {
@@ -344,6 +509,20 @@ function resetDeleteButton() {
   els.editDelete.classList.remove('confirm');
 }
 
+function renderEditorPhotos() {
+  const show = Boolean(editing?.id && editing.day);
+  els.editPhotosWrap.hidden = !show;
+  if (!show) return;
+  if (!state.photosReady) {
+    els.editPhotos.innerHTML = '<p class="nothing">Fotos sind noch nicht eingerichtet (siehe README).</p>';
+    return;
+  }
+  els.editPhotos.innerHTML =
+    photosFor(editing.id).map((p) => thumbHTML(p, `activity:${editing.id}`)).join('') +
+    uploadingHTML(editing.id) +
+    `<button class="thumb add" type="button" data-action="add-photo" data-id="${editing.id}" aria-label="Fotos hinzufügen">${ICONS.camera}</button>`;
+}
+
 function openEditor({ id = null, day = null }) {
   const a = id ? state.activities.get(id) : null;
   if (id && !a) { toast('Dieser Eintrag existiert nicht mehr.', true); return; }
@@ -362,11 +541,12 @@ function openEditor({ id = null, day = null }) {
   els.editContext.textContent = isIdea ? 'Ideensammlung' : dayLabel(editing.day);
   els.editMeta.textContent = a
     ? `Eingetragen von ${a.created_by || 'Unbekannt'} · ${formatTimestamp(a.created_at)}`
-    : '';
+    : (isIdea ? '' : 'Fotos kannst du nach dem Speichern hinzufügen.');
   els.editExtra.hidden = !a;
   els.editMove.textContent = isIdea ? 'Einem Tag zuordnen' : 'Auf anderen Tag verschieben';
   els.editToIdeas.hidden = isIdea;
   resetDeleteButton();
+  renderEditorPhotos();
   els.editDialog.showModal();
   if (!a) setTimeout(() => f.title.focus(), 50);
 }
@@ -380,6 +560,17 @@ function readEditor() {
     location: clean(f.location.value),
     note: clean(f.note.value),
   };
+}
+
+/** Nimmt ungespeicherte Änderungen beim Verschieben mit, sofern ein Titel da ist. */
+function readEditorIfValid() {
+  const fields = readEditor();
+  return fields.title ? fields : {};
+}
+
+function applyRow(row) {
+  if (row) state.activities.set(row.id, row);
+  render();
 }
 
 els.editForm.addEventListener('submit', async (e) => {
@@ -437,15 +628,18 @@ els.editDelete.addEventListener('click', async () => {
   if (!editing?.id) return;
   if (!deleteArmed) {
     deleteArmed = true;
-    els.editDelete.textContent = 'Wirklich löschen? Nochmal tippen';
+    const n = photosFor(editing.id).length;
+    els.editDelete.textContent = n ? `Mit ${plural(n, 'Foto', 'Fotos')} löschen? Nochmal tippen` : 'Wirklich löschen? Nochmal tippen';
     els.editDelete.classList.add('confirm');
     deleteTimer = setTimeout(resetDeleteButton, 4000);
     return;
   }
   const id = editing.id;
+  const photos = photosFor(id);
   try {
-    await deleteActivity(id);
+    await deleteActivity(id, photos);
     state.activities.delete(id);
+    photos.forEach((p) => state.photos.delete(p.id));
     render();
     els.editDialog.close();
     toast('Gelöscht');
@@ -453,12 +647,6 @@ els.editDelete.addEventListener('click', async () => {
     showError(err, 'Löschen hat nicht geklappt.');
   }
 });
-
-/** Nimmt ungespeicherte Änderungen beim Verschieben mit, sofern ein Titel da ist. */
-function readEditorIfValid() {
-  const fields = readEditor();
-  return fields.title ? fields : {};
-}
 
 // ---------------------------------------------------------------------
 // Einplanen-Dialog (Idee -> Tag, oder Aktivität auf anderen Tag)
@@ -477,11 +665,10 @@ function openPlanner(id, extra = {}) {
       lastMonth = w.monthKey;
       html += `<h3 class="plan-month">${esc(monthYear(parseISODate(`${w.monthKey}-01`)))}</h3>`;
     }
-    const [fri, , sun] = w.days;
     html += `
       <div class="plan-week${i === 0 ? ' current' : ''}">
         <div class="plan-week-title">
-          <span>${esc(weekendRange(fri.date, sun.date))}</span>
+          <span>${esc(weekendRange(w.first, w.last))}</span>
           ${i === 0 ? '<span class="badge">Dieses Wochenende</span>' : ''}
         </div>
         <div class="plan-days">
@@ -512,11 +699,242 @@ els.planList.addEventListener('click', async (e) => {
   }
 });
 
-// Schließen-Buttons und Tippen auf den abgedunkelten Hintergrund
+// ---------------------------------------------------------------------
+// Fotos hochladen
+// ---------------------------------------------------------------------
+let photoTarget = null;
+
+function pickPhotos(activityId) {
+  if (!state.photosReady) { showSetupBanner('photos'); toast('Fotos sind noch nicht eingerichtet.', true); return; }
+  photoTarget = activityId;
+  els.photoInput.value = '';
+  els.photoInput.click();
+}
+
+els.photoInput.addEventListener('change', () => {
+  const files = [...els.photoInput.files];
+  if (photoTarget && files.length) addPhotos(photoTarget, files);
+});
+
+async function addPhotos(activityId, files) {
+  const bump = (d) => {
+    const n = (state.uploading.get(activityId) || 0) + d;
+    if (n > 0) state.uploading.set(activityId, n); else state.uploading.delete(activityId);
+    render();
+  };
+  bump(files.length);
+  toast(files.length === 1 ? 'Foto wird hochgeladen …' : `${files.length} Fotos werden hochgeladen …`, false, 60000);
+  let ok = 0;
+  let lastError = null;
+  for (const file of files) {
+    try {
+      const img = await prepareImage(file);
+      const row = await uploadPhoto({
+        activityId, ...img, createdBy: getCurrentUser()?.name || 'Unbekannt',
+      });
+      state.photos.set(row.id, row);
+      ok++;
+    } catch (err) {
+      lastError = err;
+      console.error(err);
+    } finally {
+      bump(-1);
+    }
+  }
+  if (lastError && isSetupError(lastError)) { state.photosReady = false; showSetupBanner('photos'); }
+  if (!lastError) toast(ok === 1 ? 'Foto gespeichert' : `${ok} Fotos gespeichert`);
+  else if (ok) toast(`${ok} von ${files.length} Fotos gespeichert – der Rest hat nicht geklappt.`, true);
+  else toast('Foto konnte nicht hochgeladen werden.', true);
+}
+
+// ---------------------------------------------------------------------
+// Foto-Ansicht (Lightbox), Speichern & Herunterladen
+// ---------------------------------------------------------------------
+const lb = { ids: [], index: 0 };
+let lbDeleteArmed = false;
+let lbDeleteTimer;
+const blobCache = new Map(); // photoId -> Promise<Blob>
+
+function fetchBlob(p) {
+  if (!blobCache.has(p.id)) {
+    const promise = fetch(photoUrl(p.storage_path)).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.blob();
+    });
+    promise.catch(() => blobCache.delete(p.id));
+    blobCache.set(p.id, promise);
+  }
+  return blobCache.get(p.id);
+}
+
+function contextIds(ctx) {
+  if (ctx === 'all') return galleryPhotos().map((p) => p.id);
+  const activityId = ctx.split(':')[1];
+  return photosFor(activityId).map((p) => p.id);
+}
+
+function openLightbox(ctx, photoId) {
+  lb.ctx = ctx;
+  lb.ids = contextIds(ctx);
+  lb.index = Math.max(0, lb.ids.indexOf(photoId));
+  showLightboxPhoto();
+  els.lightbox.showModal();
+}
+
+function resetLbDelete() {
+  lbDeleteArmed = false;
+  clearTimeout(lbDeleteTimer);
+  els.lbDelete.textContent = 'Löschen';
+  els.lbDelete.classList.remove('confirm');
+}
+
+function showLightboxPhoto() {
+  const p = state.photos.get(lb.ids[lb.index]);
+  if (!p) { els.lightbox.close(); return; }
+  const a = state.activities.get(p.activity_id);
+  els.lbImg.src = photoUrl(p.storage_path);
+  els.lbImg.alt = a ? `Foto: ${a.title}` : 'Foto';
+  els.lbCounter.textContent = lb.ids.length > 1 ? `${lb.index + 1} / ${lb.ids.length}` : '';
+  els.lbCaption.innerHTML = `<b>${esc(a?.title || '')}</b>${a?.day ? esc(dayLabel(a.day)) + ' · ' : ''}Foto von ${esc(p.created_by || 'Unbekannt')}`;
+  els.lbPrev.hidden = lb.index === 0;
+  els.lbNext.hidden = lb.index >= lb.ids.length - 1;
+  resetLbDelete();
+  fetchBlob(p).catch(() => {}); // fürs Speichern schon vorladen
+}
+
+function refreshLightbox() {
+  const current = lb.ids[lb.index];
+  lb.ids = contextIds(lb.ctx);
+  if (!lb.ids.length) { els.lightbox.close(); return; }
+  const i = lb.ids.indexOf(current);
+  lb.index = i >= 0 ? i : Math.min(lb.index, lb.ids.length - 1);
+  showLightboxPhoto();
+}
+
+function stepLightbox(delta) {
+  const next = lb.index + delta;
+  if (next < 0 || next >= lb.ids.length) return;
+  lb.index = next;
+  showLightboxPhoto();
+}
+
+els.lbPrev.addEventListener('click', () => stepLightbox(-1));
+els.lbNext.addEventListener('click', () => stepLightbox(1));
+els.lightbox.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft') stepLightbox(-1);
+  if (e.key === 'ArrowRight') stepLightbox(1);
+});
+let touchX = null;
+els.lbImg.parentElement.addEventListener('touchstart', (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+els.lbImg.parentElement.addEventListener('touchend', (e) => {
+  if (touchX === null) return;
+  const dx = e.changedTouches[0].clientX - touchX;
+  touchX = null;
+  if (Math.abs(dx) > 50) stepLightbox(dx < 0 ? 1 : -1);
+});
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+const isTouchDevice = () => matchMedia('(pointer: coarse)').matches;
+
+els.lbSave.addEventListener('click', async () => {
+  const p = state.photos.get(lb.ids[lb.index]);
+  if (!p) return;
+  const name = photoFileName(p);
+  let blob;
+  try {
+    blob = await fetchBlob(p);
+  } catch (err) {
+    showError(err, 'Foto konnte nicht geladen werden.');
+    return;
+  }
+  // Auf dem Handy: Teilen-Menü (dort "Bild sichern" für die Fotos-App)
+  const file = new File([blob], name, { type: blob.type || 'image/jpeg' });
+  if (isTouchDevice() && navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+    }
+  }
+  downloadBlob(blob, name);
+});
+
+els.lbDelete.addEventListener('click', async () => {
+  const p = state.photos.get(lb.ids[lb.index]);
+  if (!p) return;
+  if (!lbDeleteArmed) {
+    lbDeleteArmed = true;
+    els.lbDelete.textContent = 'Wirklich löschen?';
+    els.lbDelete.classList.add('confirm');
+    lbDeleteTimer = setTimeout(resetLbDelete, 4000);
+    return;
+  }
+  try {
+    await deletePhoto(p);
+    state.photos.delete(p.id);
+    toast('Foto gelöscht');
+    render();
+  } catch (err) {
+    showError(err, 'Foto konnte nicht gelöscht werden.');
+  }
+});
+
+let jszipPromise;
+function loadJSZip() {
+  jszipPromise ??= new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = () => resolve(window.JSZip);
+    s.onerror = () => { jszipPromise = null; reject(new Error('JSZip konnte nicht geladen werden.')); };
+    document.head.append(s);
+  });
+  return jszipPromise;
+}
+
+let zipping = false;
+async function downloadAll() {
+  const photos = galleryPhotos();
+  if (!photos.length || zipping) return;
+  zipping = true;
+  toast(`${plural(photos.length, 'Foto wird', 'Fotos werden')} vorbereitet …`, false, 60000);
+  try {
+    const JSZip = await loadJSZip();
+    const zip = new JSZip();
+    const used = new Set();
+    for (const p of photos) {
+      let name = photoFileName(p);
+      for (let i = 2; used.has(name); i++) name = name.replace(/(-\d+)?\.jpg$/, `-${i}.jpg`);
+      used.add(name);
+      zip.file(name, await fetchBlob(p));
+    }
+    const blob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(blob, `wochenendplaner-fotos-${state.todayISO}.zip`);
+    toast('Download gestartet');
+  } catch (err) {
+    showError(err, 'Download hat nicht geklappt.');
+  } finally {
+    zipping = false;
+  }
+}
+
+// ---------------------------------------------------------------------
+// Dialoge schließen
+// ---------------------------------------------------------------------
 document.querySelectorAll('dialog').forEach((dlg) => {
   dlg.addEventListener('click', (e) => {
     if (e.target.closest('[data-close]')) { dlg.close(); return; }
-    if (e.target === dlg && dlg !== els.nameDialog) {
+    if (e.target === dlg && dlg !== els.nameDialog && dlg !== els.lightbox) {
       const r = dlg.getBoundingClientRect();
       const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
       if (!inside) dlg.close();
@@ -542,7 +960,7 @@ async function toggleDone(id) {
   }
 }
 
-document.querySelector('main').addEventListener('click', (e) => {
+function handleAction(e) {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const { action, id, day } = el.dataset;
@@ -551,7 +969,18 @@ document.querySelector('main').addEventListener('click', (e) => {
   else if (action === 'edit') openEditor({ id });
   else if (action === 'toggle') toggleDone(id);
   else if (action === 'plan') openPlanner(id);
-});
+  else if (action === 'add-photo') pickPhotos(id);
+  else if (action === 'photo') openLightbox(el.dataset.ctx, el.dataset.photo);
+  else if (action === 'download-all') downloadAll();
+}
+
+els.main.addEventListener('click', handleAction);
+els.editPhotos.addEventListener('click', handleAction);
+
+document.querySelectorAll('[data-mem]').forEach((b) => b.addEventListener('click', () => {
+  state.memMode = b.dataset.mem;
+  renderMemories();
+}));
 
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => setView(t.dataset.view)));
 
@@ -572,7 +1001,6 @@ function applyTheme(theme) {
   els.themeBtn.innerHTML = ICONS[theme === 'light' ? 'sun' : theme === 'dark' ? 'moon' : 'auto'];
   els.themeBtn.setAttribute('aria-label', `Farbschema: ${THEME_LABEL[theme]} (tippen zum Wechseln)`);
   els.themeBtn.title = `Farbschema: ${THEME_LABEL[theme]}`;
-  // Statusleisten-Farbe anpassen
   const dark = theme === 'dark' || (theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
     m.setAttribute('content', dark ? '#16141a' : '#fbf7f2');

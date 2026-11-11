@@ -2,11 +2,30 @@
 
 Eine kleine Web-App, mit der wir unsere Wochenenden gemeinsam planen.
 
-- **Übersicht aller Wochenenden** (Freitag, Samstag, Sonntag) von heute bis 31.12.2026, nach Monaten gruppiert. Das aktuelle Wochenende steht oben und ist farbig hervorgehoben.
+- **Übersicht aller Wochenenden** (Donnerstag bis Sonntag) von heute bis 31.12.2026, nach Monaten gruppiert. Das aktuelle Wochenende steht oben und ist farbig hervorgehoben. Darüber ein Titelbild mit unseren Fotos und einem Countdown bis zum Wochenende.
 - **Aktivitäten pro Tag:** hinzufügen, bearbeiten, löschen und abhaken. Felder: Titel, Uhrzeit (optional), Ort (optional), Notiz (optional). „Eingetragen von“ wird automatisch ausgefüllt.
 - **Ideensammlung & Vorschläge:** Aktivitäten ohne Datum (z. B. „Therme besuchen“). Mit **Einplanen** ordnest du eine Idee einem Freitag, Samstag oder Sonntag zu. Sie verschwindet dann aus der Sammlung. Umgekehrt geht es auch: Eine geplante Aktivität öffnen und **In die Ideensammlung** antippen.
+- **Fotos zu Terminen:** Zu jeder Aktivität lassen sich Fotos hinzufügen, auch nachträglich.
+- **Erinnerungen:** Ein eigener Reiter mit den vergangenen Wochenenden (Fotos und Aktivitäten nachtragen) und einer Galerie aller Fotos. Einzelne Fotos lassen sich speichern, alle zusammen als ZIP herunterladen.
 - **Live:** Änderungen erscheinen sofort beim anderen (grüner Punkt oben = Live-Verbindung steht).
 - Für das Handy gebaut, mit Hell- und Dunkel-Modus, und lässt sich auf dem iPhone zum Home-Bildschirm hinzufügen.
+
+---
+
+## Update „Fotos & Donnerstag“: einmal die Datenbank erweitern
+
+Für die Foto-Funktion braucht die Datenbank eine neue Tabelle und einen Speicherplatz für die Bilder. Dafür führst du **die aktuelle `supabase/schema.sql` noch einmal komplett aus**. Eure bisherigen Einträge bleiben dabei erhalten. Am PC geht das am einfachsten:
+
+1. Öffne **https://raw.githubusercontent.com/cikichris/wochendplaner/main/supabase/schema.sql**
+2. Drücke **Strg + A** (Mac: ⌘ + A) und dann **Strg + C** (Mac: ⌘ + C).
+3. Öffne **https://supabase.com/dashboard/project/lykicisycncpeuvaczhe/sql/new**
+4. Klicke in das Editor-Feld und drücke **Strg + V** (Mac: ⌘ + V).
+5. Klicke auf **„Run“** und bei einer Warnung auf **„Run this query“**.
+6. Unten muss **„Success. No rows returned“** stehen.
+
+Solange das nicht passiert ist, funktioniert die App wie bisher. Nur bei den Fotos erscheint der Hinweis „Fotos sind noch nicht eingerichtet“.
+
+> **Hinweis:** Die drei Fotos im Titelbild liegen im öffentlichen Repository und sind damit für jeden im Internet sichtbar. Ihre versteckten Metadaten (z. B. der GPS-Ort) wurden entfernt. Auch die Fotos, die ihr in der App hochladet, kann ohne Login jeder sehen, der den Link kennt. Beim Hochladen werden sie automatisch verkleinert, und ihre Metadaten werden entfernt.
 
 ---
 
@@ -99,6 +118,12 @@ Der Code liegt im Moment auf einem eigenen Zweig (Branch) namens `claude/github-
 | Zurück in die Ideensammlung | Aktivität öffnen → **In die Ideensammlung** |
 | Idee anlegen | Unten auf **Ideen** → **Idee hinzufügen** |
 | Idee einplanen | Bei der Idee auf **Einplanen** → Tag antippen |
+| Fotos hinzufügen | Aktivität öffnen → Kamera-Kachel unter „Fotos“ (geht nach dem Speichern) |
+| Fotos nachträglich hinzufügen | Unten auf **Erinnerungen** → beim vergangenen Wochenende auf die Kamera-Kachel tippen |
+| Vergangenes Wochenende nachtragen | **Erinnerungen** → beim Wochenende unter „Nachtragen“ auf **Do/Fr/Sa/So** |
+| Fotos ansehen | Auf ein Foto tippen, dann wischen oder die Pfeile nutzen |
+| Foto aufs Handy speichern | Foto öffnen → **Speichern** → im Teilen-Menü **„Bild sichern“** |
+| Alle Fotos herunterladen | **Erinnerungen** → **Alle Fotos** → **Alle herunterladen** (ZIP-Datei) |
 | Hell/Dunkel | Oben rechts auf das Kreis-Symbol tippen (automatisch → hell → dunkel) |
 | Namen ändern | Oben auf deinen Namen tippen |
 
@@ -124,14 +149,17 @@ Es gibt **noch keinen Login**. Jeder, der den Link kennt, kann die Einträge les
   | `styles.css` | Aussehen inkl. Hell-/Dunkel-Modus |
   | `config.js` | Supabase-URL, Publishable Key, Enddatum (`END_DATE`), Namensvorschläge |
   | `app.js` | Oberfläche und Abläufe |
-  | `api.js` | Alle Datenbankzugriffe + Realtime |
+  | `api.js` | Alle Datenbank- und Speicherzugriffe + Realtime |
+  | `images.js` | Verkleinert Fotos vor dem Hochladen |
+  | `foto-*.jpg` | Unsere Fotos für Titelbild und Banner |
   | `auth.js` | Wer ist angemeldet? (heute: Name im Browser) |
   | `dates.js` | Berechnung der Wochenenden, Datumsformate |
   | `supabase-client.js` | Supabase-Verbindung |
   | `manifest.webmanifest`, `icon*.png`, `icon.svg`, `apple-touch-icon.png` | Home-Bildschirm-App |
-  | `supabase/schema.sql` | Tabelle, GRANTs, RLS-Regeln, Realtime |
+  | `supabase/schema.sql` | Tabellen, GRANTs, RLS-Regeln, Foto-Speicher, Realtime |
 
-- **Datenmodell:** Eine Tabelle `activities`. Eine Zeile mit `day = Datum` ist eine geplante Aktivität, `day = NULL` ist eine Idee. Einplanen und Zurückschieben ändern nur `day`.
+- **Datenmodell:** Tabelle `activities`: Eine Zeile mit `day = Datum` ist eine geplante Aktivität, `day = NULL` ist eine Idee. Einplanen und Zurückschieben ändern nur `day`. Tabelle `photos`: ein Eintrag pro Foto, verknüpft mit einer Aktivität. Die Bilddateien (groß + Vorschau) liegen im Storage-Bucket `photos`.
+- **Titelbild-Fotos austauschen:** Die Dateien `foto-*.jpg` ersetzen oder in `index.html` andere Dateinamen eintragen.
 - **Später Login per E-Mail + Passwort nachrüsten:** Die App fragt den Nutzer nur über `auth.js` ab (`initAuth`, `getCurrentUser`, `signIn`, `signOut`). Dort sind die Stellen mit `TODO email` markiert. Die Tabelle hat schon eine Spalte `user_id` (wird automatisch mit `auth.uid()` gefüllt), und am Ende von `supabase/schema.sql` steht, wie man den offenen Zugang für `anon` wieder schließt.
 - **Länger planen:** In `config.js` den Wert `END_DATE` ändern (z. B. `'2027-12-31'`).
 - **Lokal testen (am Computer):** Im Ordner `python3 -m http.server` ausführen und http://localhost:8000 öffnen.
