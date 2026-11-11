@@ -5,12 +5,20 @@ Eine kleine Web-App, mit der wir unsere Wochenenden gemeinsam planen.
 - **Übersicht aller Wochenenden** (Donnerstag bis Sonntag) von heute bis 31.12.2026, nach Monaten gruppiert. Das aktuelle Wochenende steht oben und ist farbig hervorgehoben. Darüber ein Titelbild mit unseren Fotos und einem Countdown bis zum Wochenende.
 - **Aktivitäten pro Tag:** hinzufügen, bearbeiten, löschen und abhaken. Felder: Titel, Uhrzeit (optional), Ort (optional), Notiz (optional). „Eingetragen von“ wird automatisch ausgefüllt.
 - **Ideensammlung & Vorschläge:** Aktivitäten ohne Datum (z. B. „Therme besuchen“). Mit **Einplanen** ordnest du eine Idee einem Freitag, Samstag oder Sonntag zu. Sie verschwindet dann aus der Sammlung. Umgekehrt geht es auch: Eine geplante Aktivität öffnen und **In die Ideensammlung** antippen.
+- **Persönliche Termine („Nur ich“):** Fixe Termine einer Person, die der andere kennen sollte (z. B. „Hufpflege kommt“). Sie erscheinen in der Farbe der Person: **Chris dunkelblau**, **Odilia dunkelgrün**. 📌 **Fixtermine** sind markiert, Termine haben eine Uhrzeit **von–bis**, und bei **Überschneidungen** mit gemeinsamen Plänen erscheint ein Hinweis.
+- **Foto-Challenge:** Am Tag eines gemeinsamen Termins erinnert die App ans Fotografieren. Beim Abhaken ohne Foto fragt sie nach einem Foto, alternativ lässt sich der Termin „ohne Foto abschließen“. Vergangene Termine ohne Foto stehen oben unter „Foto-Challenge“. Unter Erinnerungen zählt eine 🔥-Serie, wie viele Wochenenden in Folge ihr Fotos gemacht habt.
 - **Fotos zu Terminen:** Zu jeder Aktivität lassen sich Fotos hinzufügen, auch nachträglich.
 - **Erinnerungen:** Ein eigener Reiter mit den vergangenen Wochenenden (Fotos und Aktivitäten nachtragen) und einer Galerie aller Fotos. Einzelne Fotos lassen sich speichern, alle zusammen als ZIP herunterladen.
 - **Live:** Änderungen erscheinen sofort beim anderen (grüner Punkt oben = Live-Verbindung steht).
 - Für das Handy gebaut, mit Hell- und Dunkel-Modus, und lässt sich auf dem iPhone zum Home-Bildschirm hinzufügen.
 
 ---
+
+## Update „Persönliche Termine & Foto-Challenge“: Datenbank erweitern
+
+Für dieses Update braucht die Datenbank vier neue Felder (für wen, Fixtermin, Ende, „ohne Foto abgeschlossen“). Führe dafür **die aktuelle `supabase/schema.sql` noch einmal komplett aus**, genau wie im nächsten Abschnitt beschrieben. Eure Einträge und Fotos bleiben erhalten.
+
+Bis dahin funktionieren gemeinsame Termine wie bisher. Beim Speichern eines persönlichen Termins oder bei „Ohne Foto abschließen“ erscheint dann der Hinweis „Neue Funktionen noch nicht eingerichtet“.
 
 ## Update „Fotos & Donnerstag“: einmal die Datenbank erweitern
 
@@ -111,8 +119,11 @@ Der Code liegt im Moment auf einem eigenen Zweig (Branch) namens `claude/github-
 | Was | Wie |
 | --- | --- |
 | Aktivität hinzufügen | Beim Tag auf **„+ Neu“** tippen |
+| Persönlichen Termin eintragen | **„+ Neu“** → oben **„Nur ich“** wählen (gilt immer für die Person, die einträgt) |
+| Fixtermin markieren | Im Dialog den Schalter **📌 Fixtermin** einschalten |
+| Foto-Challenge erledigen | Oben bei **Foto-Challenge** auf **Foto** (hochladen) oder **Ohne** (ohne Foto abschließen) |
 | Aktivität bearbeiten | Auf die Aktivität tippen |
-| Abhaken | Auf das Kästchen links tippen |
+| Abhaken | Auf das Kästchen links tippen (gemeinsame Termine ohne Foto: die App fragt nach einem Foto). Persönliche Termine haben kein Kästchen. |
 | Löschen | Aktivität öffnen → **Löschen** → zur Sicherheit noch einmal tippen |
 | Auf anderen Tag verschieben | Aktivität öffnen → **Auf anderen Tag verschieben** |
 | Zurück in die Ideensammlung | Aktivität öffnen → **In die Ideensammlung** |
@@ -147,7 +158,7 @@ Es gibt **noch keinen Login**. Jeder, der den Link kennt, kann die Einträge les
   | --- | --- |
   | `index.html` | Seitengerüst und Dialoge |
   | `styles.css` | Aussehen inkl. Hell-/Dunkel-Modus |
-  | `config.js` | Supabase-URL, Publishable Key, Enddatum (`END_DATE`), Namensvorschläge |
+  | `config.js` | Supabase-URL, Publishable Key, Enddatum (`END_DATE`), Namensvorschläge, **Personenfarben** (`PERSON_COLORS`) |
   | `app.js` | Oberfläche und Abläufe |
   | `api.js` | Alle Datenbank- und Speicherzugriffe + Realtime |
   | `images.js` | Verkleinert Fotos vor dem Hochladen |
@@ -159,6 +170,8 @@ Es gibt **noch keinen Login**. Jeder, der den Link kennt, kann die Einträge les
   | `supabase/schema.sql` | Tabellen, GRANTs, RLS-Regeln, Foto-Speicher, Realtime |
 
 - **Datenmodell:** Tabelle `activities`: Eine Zeile mit `day = Datum` ist eine geplante Aktivität, `day = NULL` ist eine Idee. Einplanen und Zurückschieben ändern nur `day`. Tabelle `photos`: ein Eintrag pro Foto, verknüpft mit einer Aktivität. Die Bilddateien (groß + Vorschau) liegen im Storage-Bucket `photos`.
+- **Persönliche Termine:** Spalte `owner` (leer = gemeinsam, sonst Name der Person), dazu `is_fixed`, `end_time` und `photo_skipped` für die Foto-Challenge.
+- **Farben ändern:** In `config.js` unter `PERSON_COLORS` (je eine Farbe für hell und dunkel).
 - **Titelbild-Fotos austauschen:** Die Dateien `foto-*.jpg` ersetzen oder in `index.html` andere Dateinamen eintragen.
 - **Später Login per E-Mail + Passwort nachrüsten:** Die App fragt den Nutzer nur über `auth.js` ab (`initAuth`, `getCurrentUser`, `signIn`, `signOut`). Dort sind die Stellen mit `TODO email` markiert. Die Tabelle hat schon eine Spalte `user_id` (wird automatisch mit `auth.uid()` gefüllt), und am Ende von `supabase/schema.sql` steht, wie man den offenen Zugang für `anon` wieder schließt.
 - **Länger planen:** In `config.js` den Wert `END_DATE` ändern (z. B. `'2027-12-31'`).

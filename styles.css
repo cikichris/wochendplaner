@@ -453,3 +453,130 @@ dialog.lightbox::backdrop { background: #000; }
 .lb-actions { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; }
 .lb-delete { background: rgba(255, 255, 255, .12); color: #ffb4ac; }
 .lb-delete.confirm { background: #c0392b; color: #fff; }
+
+/* ===================== Persönliche Termine (Personenfarben) ===================== */
+/* --pc-l / --pc-d werden pro Person inline gesetzt (siehe config.js) */
+.personal, .person-btn, .owner-wrap, .chip.has-person { --pc: var(--pc-l, var(--accent)); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) :is(.personal, .person-btn, .owner-wrap, .chip.has-person) { --pc: var(--pc-d, var(--accent)); }
+}
+:root[data-theme="dark"] :is(.personal, .person-btn, .owner-wrap, .chip.has-person) { --pc: var(--pc-d, var(--accent)); }
+
+.person-dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--pc, var(--accent)); }
+.chip.has-person { border-color: color-mix(in srgb, var(--pc) 45%, var(--border)); }
+.chip.has-person svg { color: var(--pc); stroke-width: 2.4; }
+
+.item.personal {
+  background: color-mix(in srgb, var(--pc) 9%, var(--surface));
+  border-color: color-mix(in srgb, var(--pc) 35%, var(--border));
+  box-shadow: inset 5px 0 0 var(--pc);
+}
+.weekend.current .item.personal { background: color-mix(in srgb, var(--pc) 9%, var(--surface)); }
+.item.personal .item-body { padding-left: 18px; }
+.item.personal .item-photos { padding-left: 18px; }
+
+.item-chips { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-bottom: 4px; }
+.chip-person, .chip-tag {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; line-height: 18px;
+}
+.chip-person { background: color-mix(in srgb, var(--pc) 16%, transparent); color: var(--pc); }
+.chip-person .person-dot { width: 8px; height: 8px; }
+.chip-tag { background: var(--surface-2); color: var(--text); }
+.chip-tag.fixed { background: color-mix(in srgb, #b7791f 16%, transparent); color: #8a5a12; }
+.chip-tag.photo { background: var(--accent-soft); color: var(--accent); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .chip-tag.fixed { color: #f0c46b; }
+}
+:root[data-theme="dark"] .chip-tag.fixed { color: #f0c46b; }
+
+.item-conflict {
+  display: flex; align-items: flex-start; gap: 5px; margin-top: 4px;
+  font-size: 13px; font-weight: 600; color: #b45309;
+}
+.item-conflict svg { width: 15px; height: 15px; margin-top: 1px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .item-conflict { color: #fbbf24; } }
+:root[data-theme="dark"] .item-conflict { color: #fbbf24; }
+
+/* ===================== Bearbeiten-Dialog: neue Felder ===================== */
+.owner-wrap { margin-bottom: 14px; }
+.owner-toggle { margin-bottom: 0; }
+.owner-toggle button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.owner-toggle button[data-owner="me"][aria-checked="true"] { color: var(--pc); box-shadow: inset 0 0 0 2px var(--pc), var(--shadow); }
+.field-row.two { grid-template-columns: 1fr 1fr; }
+
+.overlap {
+  display: flex; gap: 8px; align-items: flex-start; margin: -4px 0 14px; padding: 10px 12px; border-radius: 12px;
+  background: color-mix(in srgb, #f59e0b 14%, transparent); color: var(--text); font-size: 14px;
+}
+.overlap svg { width: 18px; height: 18px; color: #d97706; margin-top: 1px; }
+
+.switch-field {
+  display: flex; align-items: center; gap: 12px; min-height: 56px; margin-bottom: 14px; padding: 8px 12px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--bg); cursor: pointer;
+}
+.switch-field input { position: absolute; opacity: 0; pointer-events: none; }
+.switch {
+  position: relative; flex: none; width: 50px; height: 30px; border-radius: 999px; background: var(--border); transition: background .2s;
+}
+.switch::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); transition: transform .2s;
+}
+.switch-field input:checked + .switch { background: var(--accent); }
+.switch-field input:checked + .switch::after { transform: translateX(20px); }
+.switch-field input:focus-visible + .switch { outline: 3px solid var(--accent); outline-offset: 2px; }
+.switch-text { display: flex; flex-direction: column; font-weight: 650; }
+.switch-text small { font-weight: 500; font-size: 13px; color: var(--muted); }
+
+.person-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.name-suggestions .person-btn {
+  background: color-mix(in srgb, var(--pc) 14%, var(--surface)); color: var(--pc);
+  border: 2px solid color-mix(in srgb, var(--pc) 40%, transparent);
+}
+
+/* ===================== Foto-Challenge ===================== */
+.challenge {
+  margin: 10px 0 6px; padding: 14px 14px 10px; border-radius: var(--radius);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--surface)), var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); box-shadow: var(--shadow);
+}
+.challenge-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.challenge-emoji {
+  display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 14px;
+  background: var(--accent); font-size: 22px;
+}
+.challenge-head h3 { margin: 0; font-size: 17px; }
+.challenge-head p { margin: 1px 0 0; font-size: 14px; color: var(--muted); }
+.challenge-list { list-style: none; margin: 0; padding: 0; }
+.challenge-list li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--border); }
+.challenge-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.challenge-text b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.challenge-text small { color: var(--muted); font-size: 13px; }
+.challenge-photo, .challenge-skip, .challenge-more {
+  min-height: 44px; padding: 0 12px; border: 0; border-radius: 999px; font-weight: 700; font-size: 14px;
+}
+.challenge-photo { display: inline-flex; align-items: center; gap: 5px; background: var(--accent); color: var(--accent-ink); }
+.challenge-photo svg { width: 17px; height: 17px; }
+.challenge-skip { background: var(--surface-2); color: var(--muted); }
+.challenge-more { width: 100%; margin-top: 4px; background: transparent; color: var(--accent); }
+.thumb.uploading.small { width: 44px; height: 44px; }
+
+.skip-link {
+  align-self: center; flex: none; min-height: 44px; padding: 0 10px; border: 0; background: transparent;
+  color: var(--muted); font-size: 13px; font-weight: 650; text-decoration: underline; text-underline-offset: 3px;
+}
+
+.mem-stats { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 12px; }
+.mem-stats:empty { display: none; }
+.stat {
+  display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); font-size: 14px; font-weight: 650;
+}
+.stat.hot { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+.stat.warn { color: var(--muted); }
+
+.pc-emoji { font-size: 44px; text-align: center; margin: 4px 0 6px; }
+#photoCheck h2 { text-align: center; }
+#photoCheck .muted { text-align: center; }
+.pc-actions { display: grid; gap: 10px; }
